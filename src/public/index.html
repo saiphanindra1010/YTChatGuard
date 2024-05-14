@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>MOD</title>
+    <link rel="stylesheet" type="text/css" href="/public/styles.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        background: #141414;
+        color: #eee;
+        font-family: Arial, sans-serif;
+      }
+
+      h1 {
+        text-align: center;
+        font-size: 2rem;
+ 
+        font-weight: 300;
+        margin-top: 30px;
+      }
+      strong {
+        display: block;
+        text-align: center;
+        font-size: 1.2rem;
+        margin-bottom: 30px;
+      }
+      button {
+        padding: 10px 20px;
+        margin: 12px;
+        font-size: 16px;
+        background: #ffffff;
+        color: #000000;
+        border: none;
+        cursor: pointer;
+        border-radius: 10px;
+
+      }
+      button a {
+        color: #000000;
+        text-decoration: none;
+      }
+      .btn-grp {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-bottom: 30px;
+      }
+      #res {
+        /* background: #444; */
+        color: #eee;
+        text-align: center;
+        padding: 20px;
+        margin-bottom: 30px;
+      }
+      .info {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .info ol {
+        padding-left: 20px;
+      }
+      .info ol li {
+        margin-bottom: 10px;
+      }
+      .info iframe {
+        margin-top: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AI MOD</h1>
+    <div class="btn-grp">
+      <button><a href="/authorize">Authorize</a></button>
+      <button><a href="/start">Start</a></button>
+      <button><a href="/kill">Kill Bot 💀</a></button>
+      <button><a href="/check">Check</a></button>
+    </div>
+    <div id="res"></div>
+    <div class="info">
+      <ol>
+        <li>Click Authorize to init bot</li>
+        <li>Start will get the active chat id and will track the live chat by polling for every 5000 ms</li>
+        <li>Kill will stop bot from tracking the live chat </li>
+        <li>Check will insert a message in live chat</li>
+      </ol>
+    </div>
+
+    <script>
+      const urlParams = new URLSearchParams(window.location.search);
+      let myParam = urlParams.get('msg');
+      if (!myParam) myParam = "";
+      const resultDiv = document.querySelector("#res");
+      resultDiv.innerHTML = `<p>${myParam}</p> <p>Check console for logs</p>`
+    </script>
+  </body>
+</html>
