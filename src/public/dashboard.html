@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YTChatGuard</title>
+    <script>
+        (function () {
+            var allowed = 'autumn,business,acid,lemonade,night,coffee,winter,dim,nord,sunset'.split(',');
+            try {
+                var raw = localStorage.getItem('ytchatguard-theme') || 'sunset';
+                var t = allowed.indexOf(raw) >= 0 ? raw : 'sunset';
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'sunset');
+            }
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="/css/tailwind.css" rel="stylesheet">
+    <style>
+        body { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+        .font-mono-ycg { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+        .ycg-titlebar-drag { -webkit-app-region: drag; app-region: drag; }
+        .ycg-titlebar-nodrag { -webkit-app-region: no-drag; app-region: no-drag; }
+        /* macOS: native traffic lights sit top-left; keep title text out from under them */
+        html.ycg-electron-mac #electronTitlebar:not(.hidden) .ycg-titlebar-drag {
+            padding-left: 78px;
+        }
+        /* macOS: use only system traffic lights — hide duplicate custom min/max/close (those are for Win/Linux) */
+        html.ycg-electron-mac #electronWindowControls {
+            display: none !important;
+        }
+        /* App shell: only main scrolls; sidebar stays fixed height (no page-level scroll) */
+        html,
+        body {
+            height: 100%;
+            max-height: 100%;
+        }
+        #ycgAppShell {
+            min-height: 0;
+        }
+        #ycgSidebar {
+            position: sticky;
+            top: 0;
+            align-self: stretch;
+            max-height: 100%;
+            overflow: hidden;
+        }
+        #ycgSidebarNav {
+            min-height: 0;
+            flex: 1 1 auto;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+        /* Theme picker (DaisyUI-style menu) */
+        .ycg-theme-panel {
+            box-shadow:
+                0 10px 15px -3px rgb(0 0 0 / 0.12),
+                0 4px 6px -4px rgb(0 0 0 / 0.08);
+        }
+        .ycg-theme-swatch-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 3px;
+            width: 2rem;
+            height: 2rem;
+            padding: 4px;
+            border-radius: 0.5rem;
+            background: color-mix(in oklab, var(--fallback-b1, #fff) 85%, transparent);
+            border: 1px solid color-mix(in oklab, var(--fallback-bc, #888) 15%, transparent);
+        }
+        .ycg-theme-dot {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 9999px;
+        }
+        .ycg-theme-row {
+            transition: background-color 0.12s ease;
+        }
+
+        /* —— App-wide typography & rhythm —— */
+        .ycg-app {
+            font-size: 15px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+        .ycg-app h1 {
+            letter-spacing: -0.02em;
+        }
+        .ycg-page > header p,
+        .ycg-prose {
+            line-height: 1.55;
+        }
+        .ycg-app .form-control {
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+        }
+        .ycg-app .form-control .label-text {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            color: color-mix(in oklab, var(--fallback-bc, #888) 82%, var(--fallback-b1, #fff));
+            line-height: 1.35;
+        }
+        .ycg-app .input,
+        .ycg-app .select {
+            line-height: 1.45;
+        }
+        .ycg-app .input:not(.input-sm),
+        .ycg-app .select:not(.select-sm) {
+            min-height: 2.5rem;
+            padding-left: 0.875rem;
+            padding-right: 0.875rem;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+        }
+        .ycg-app .input.input-sm,
+        .ycg-app .select.select-sm {
+            min-height: 2.25rem;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+            padding-top: 0.4375rem;
+            padding-bottom: 0.4375rem;
+        }
+        /* Join: URL + Copy — equal height, aligned */
+        .ycg-app .join {
+            align-items: stretch;
+        }
+        .ycg-app .join .join-item.input {
+            min-height: 2.5rem;
+            height: auto;
+        }
+        .ycg-app .join .join-item.btn {
+            min-height: 2.5rem;
+            height: auto;
+            align-self: stretch;
+        }
+        .ycg-card-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .ycg-card-stack-lg {
+            gap: 1.25rem;
+        }
+        .ycg-instructions {
+            margin-top: 0.5rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid color-mix(in oklab, var(--fallback-bc, #888) 22%, transparent);
+        }
+        .ycg-instructions li {
+            padding-left: 0.25rem;
+            line-height: 1.55;
+        }
+        .ycg-app .table thead th {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            opacity: 0.8;
+            vertical-align: middle;
+        }
+        .ycg-app .table td {
+            vertical-align: top;
+        }
+        .ycg-app .stat .stat-title {
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            opacity: 0.72;
+            margin-bottom: 0.2rem;
+        }
+        .ycg-app .stat .stat-value {
+            line-height: 1.2;
+        }
+    </style>
+</head>
+<body class="ycg-app flex h-full min-h-0 flex-col overflow-hidden bg-base-200 text-base-content antialiased">
+    <header id="electronTitlebar" class="hidden shrink-0 border-b border-base-300 bg-base-200/95 backdrop-blur-sm z-40">
+        <div class="flex h-9 items-stretch justify-between">
+            <div class="ycg-titlebar-drag flex flex-1 items-center gap-2 px-3">
+                <span class="text-xs font-semibold tracking-tight text-base-content/80">YTChatGuard</span>
+            </div>
+            <div id="electronWindowControls" class="ycg-titlebar-nodrag flex shrink-0 items-center">
+                <button type="button" id="electronBtnMin" class="flex h-9 w-11 items-center justify-center rounded-none border-0 bg-transparent text-base-content/70 hover:bg-base-content/10" title="Minimize" aria-label="Minimize">
+                    <svg width="10" height="1" viewBox="0 0 10 1" aria-hidden="true">
+                        <rect width="10" height="1" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button type="button" id="electronBtnMax" class="flex h-9 w-11 items-center justify-center rounded-none border-0 bg-transparent text-base-content/70 hover:bg-base-content/10" title="Maximize" aria-label="Maximize">
+                    <svg id="electronIconMax" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                        <rect x="0" y="0" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/>
+                    </svg>
+                </button>
+                <button type="button" id="electronBtnClose" class="flex h-9 w-11 items-center justify-center rounded-none border-0 bg-transparent text-base-content/70 hover:bg-error/30" title="Close" aria-label="Close">
+                    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                        <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+    <div id="ycgAppShell" class="flex min-h-0 flex-1 overflow-hidden">
+        <aside
+            id="ycgSidebar"
+            class="flex min-h-0 w-[14rem] shrink-0 flex-col border-r border-base-300 bg-base-200 md:w-64"
+            aria-label="Primary navigation"
+        >
+            <div class="flex items-start gap-3 border-b border-base-300 px-4 py-6">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/20">
+                    <svg class="h-5 w-5 text-primary-content" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="text-sm font-semibold leading-tight">YTChatGuard</div>
+                    <div class="mt-1 text-xs text-base-content/60">AI live chat moderation</div>
+                </div>
+            </div>
+            <nav id="ycgSidebarNav" class="flex flex-col gap-1 p-2" role="navigation" aria-label="Sections">
+                <button type="button" class="nav-item btn btn-ghost justify-start gap-3 border-l-4 border-primary bg-primary/10 font-semibold" data-tab="monitor" onclick="switchTab('monitor')" aria-current="page">
+                    <span class="opacity-90" aria-hidden="true"><svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+                    Live
+                </button>
+                <button type="button" class="nav-item btn btn-ghost justify-start gap-3 border-l-4 border-transparent" data-tab="insights" onclick="switchTab('insights')">
+                    <span class="opacity-90" aria-hidden="true"><svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg></span>
+                    Insights
+                </button>
+                <button type="button" class="nav-item btn btn-ghost justify-start gap-3 border-l-4 border-transparent" data-tab="system" onclick="switchTab('system')">
+                    <span class="opacity-90" aria-hidden="true"><svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.488.488 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.27.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></span>
+                    System
+                </button>
+            </nav>
+            <div class="border-t border-base-300 p-3">
+                <div class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-xs text-base-content/70" role="status">
+                    <span id="statusDot" class="inline-block h-2 w-2 shrink-0 rounded-full bg-error animate-pulse" aria-hidden="true"></span>
+                    <span id="statusText">Offline</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-gradient-to-b from-base-200 to-base-300/30 px-4 py-7 md:px-8">
+            <div class="mx-auto max-w-4xl">
+            <section id="monitor" class="ycg-page" aria-labelledby="page-live">
+                <header class="mb-7">
+                    <h1 id="page-live" class="text-2xl font-semibold tracking-tight text-base-content">Live stream</h1>
+                    <p class="ycg-prose mt-2 max-w-2xl text-sm text-base-content/65">Connect your channel, optionally pin a video, then start monitoring.</p>
+                </header>
+
+                <div id="authBanner" class="alert alert-warning mb-4 shadow-sm">
+                    <div class="flex w-full flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                        <div class="min-w-0">
+                            <h2 class="text-base font-semibold">YouTube</h2>
+                            <p id="authBannerText" class="mt-1 text-sm leading-relaxed opacity-90">Checking sign-in…</p>
+                        </div>
+                        <div class="flex shrink-0 flex-wrap gap-2">
+                            <button type="button" id="openSettingsBtn" onclick="switchTab('system')" class="btn btn-sm hidden min-h-9">Open System</button>
+                            <a href="/login" id="signInLink" class="btn btn-primary btn-sm min-h-9">Sign in with Google</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4 border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body flex flex-col gap-4 p-5 sm:flex-row sm:flex-wrap sm:items-end">
+                        <label class="form-control min-w-[min(100%,16rem)] flex-1 sm:min-w-[200px]">
+                            <span class="label-text">Video ID or URL (optional)</span>
+                            <input type="text" id="videoId" class="input input-bordered input-sm w-full font-mono-ycg" placeholder="Live video URL or ID" autocomplete="off">
+                        </label>
+                        <div class="flex shrink-0 flex-wrap gap-2 sm:pb-0.5">
+                            <button type="button" onclick="testConnection()" class="btn btn-outline btn-sm min-h-9">Test</button>
+                            <button type="button" onclick="toggleMonitoring()" id="monitorBtn" class="btn btn-primary btn-sm min-h-9">Start monitoring</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">Messages</div>
+                        <div id="totalMessages" class="stat-value text-2xl">0</div>
+                    </div>
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">Flagged</div>
+                        <div id="flaggedMessages" class="stat-value text-2xl text-error">0</div>
+                    </div>
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">AI analyzed</div>
+                        <div id="aiProcessed" class="stat-value text-2xl text-info">0</div>
+                    </div>
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">Efficiency</div>
+                        <div id="efficiency" class="stat-value text-2xl text-success">0%</div>
+                    </div>
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">Warnings</div>
+                        <div id="maWarning" class="stat-value text-xl text-warning">0</div>
+                    </div>
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">Timeout</div>
+                        <div id="maTimeout" class="stat-value text-xl text-info">0</div>
+                    </div>
+                    <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
+                        <div class="stat-title text-xs">Ban-tier</div>
+                        <div id="maBan" class="stat-value text-xl text-error">0</div>
+                    </div>
+                    <div class="flex items-center justify-center rounded-box border border-base-300 bg-base-100 p-3 shadow">
+                        <button type="button" onclick="switchTab('insights')" class="btn btn-outline btn-sm">Full insights</button>
+                    </div>
+                </div>
+
+                <div class="card border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body p-0">
+                        <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <span class="inline-block h-2 w-2 rounded-full bg-success animate-pulse" aria-hidden="true"></span>
+                                <h2 class="text-sm font-semibold tracking-tight">Activity</h2>
+                            </div>
+                            <button type="button" onclick="clearLogs()" class="link link-primary text-xs font-medium">Clear</button>
+                        </div>
+                        <div id="activityLog" class="font-mono-ycg max-h-72 overflow-y-auto bg-base-200/50 p-4 text-xs leading-[1.6]">
+                            <div class="log-slide text-info">System ready</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="insights" class="ycg-page hidden" aria-labelledby="page-insights">
+                <header class="mb-7">
+                    <h1 id="page-insights" class="text-2xl font-semibold tracking-tight text-base-content">Insights</h1>
+                    <p class="ycg-prose mt-2 max-w-2xl text-sm text-base-content/65">Efficiency, queue mix, and moderation audit.</p>
+                </header>
+
+                <div class="mb-6 grid gap-5 md:grid-cols-2">
+                    <div class="card border border-base-300 bg-base-100 shadow-xl">
+                        <div class="card-body gap-4 p-6">
+                            <h2 class="card-title text-base font-semibold">AI performance</h2>
+                            <div class="mb-4">
+                                <div class="mb-1 flex justify-between text-xs opacity-70">
+                                    <span>Efficiency</span>
+                                    <span id="efficiencyRate" class="font-semibold">0%</span>
+                                </div>
+                                <progress id="efficiencyBar" class="progress progress-primary w-full" value="0" max="100"></progress>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="rounded-lg bg-base-200 p-4 text-center">
+                                    <p id="avgResponseTime" class="text-2xl font-light text-success">0ms</p>
+                                    <p class="mt-1 text-xs opacity-60">Avg response</p>
+                                </div>
+                                <div class="rounded-lg bg-base-200 p-4 text-center">
+                                    <p id="cacheHitRate" class="text-2xl font-light text-warning">0%</p>
+                                    <p class="mt-1 text-xs opacity-60">Cache hit</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card border border-base-300 bg-base-100 shadow-xl">
+                        <div class="card-body gap-4 p-6">
+                            <h2 class="card-title text-base font-semibold">Processing</h2>
+                            <div class="flex justify-between rounded-lg bg-base-200 px-4 py-3 text-sm">
+                                <span class="opacity-80">AI processed</span>
+                                <span id="processed" class="font-semibold text-info">0</span>
+                            </div>
+                            <div class="mt-2 flex justify-between rounded-lg bg-base-200 px-4 py-3 text-sm">
+                                <span class="opacity-80">Cached</span>
+                                <span id="cached" class="font-semibold text-success">0</span>
+                            </div>
+                            <div class="mt-2 flex justify-between rounded-lg bg-base-200 px-4 py-3 text-sm">
+                                <span class="opacity-80">Skipped</span>
+                                <span id="skipped" class="font-semibold text-warning">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body gap-4 p-6">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <h2 class="card-title text-base font-semibold">Moderation audit</h2>
+                            <button type="button" onclick="loadModerationActions()" class="btn btn-outline btn-sm min-h-9">Refresh</button>
+                        </div>
+                        <p class="text-sm leading-relaxed text-base-content/65">Escalation picks templates and optional YouTube timeout/ban when those toggles are on in System → YouTube enforcement.</p>
+                        <p id="actionsTotal" class="text-xs font-medium text-base-content/55">0 actions recorded</p>
+                        <div class="overflow-x-auto rounded-lg border border-base-300">
+                            <table class="table table-zebra table-pin-rows table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Escalation</th>
+                                        <th>YT API</th>
+                                        <th>Viewer</th>
+                                        <th>Severity</th>
+                                        <th>Source</th>
+                                        <th>Their message</th>
+                                        <th>Bot reply</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="actionsTableBody">
+                                    <tr><td colspan="8" class="text-base-content/50">Open this tab to load actions.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="system" class="ycg-page hidden" aria-labelledby="page-system">
+                <header class="mb-7">
+                    <h1 id="page-system" class="text-2xl font-semibold tracking-tight text-base-content">System</h1>
+                    <p class="ycg-prose mt-2 max-w-2xl text-sm text-base-content/65">
+                        <strong class="font-medium text-base-content/85">Quick start:</strong> add Google OAuth credentials, pick <strong class="font-medium">Gemini</strong> or <strong class="font-medium">LM Studio</strong>, save, then sign in on <strong class="font-medium">Live</strong> and start monitoring.
+                    </p>
+                </header>
+
+                <div class="card mb-6 border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body gap-0 p-6 sm:p-8">
+                        <div class="ycg-card-stack ycg-card-stack-lg max-w-xl">
+                            <div>
+                                <h2 class="card-title text-lg font-semibold tracking-tight">Google OAuth (YouTube)</h2>
+                                <p class="ycg-prose mt-2 text-sm text-base-content/70">
+                                    Required for reading live chat. Create an OAuth client in the
+                                    <a href="https://console.cloud.google.com/apis/credentials" class="link link-primary font-medium" target="_blank" rel="noopener noreferrer">Google Cloud Console</a>,
+                                    enable <strong class="font-semibold text-base-content/90">YouTube Data API v3</strong>, and add the redirect URI below.
+                                </p>
+                            </div>
+                            <label class="form-control w-full">
+                                <span class="label-text">Authorized redirect URI</span>
+                                <div class="join w-full">
+                                    <input
+                                        type="text"
+                                        id="oauthRedirectUri"
+                                        readonly
+                                        class="input input-bordered join-item w-full min-w-0 font-mono-ycg text-sm"
+                                    />
+                                    <button type="button" onclick="copyRedirectUri()" class="btn btn-primary join-item shrink-0 px-4">Copy</button>
+                                </div>
+                            </label>
+                            <label class="form-control w-full">
+                                <span class="label-text">Client ID</span>
+                                <input
+                                    type="text"
+                                    id="oauthClientId"
+                                    autocomplete="off"
+                                    class="input input-bordered w-full font-mono-ycg text-sm"
+                                    placeholder="xxxx.apps.googleusercontent.com"
+                                />
+                            </label>
+                            <label class="form-control w-full">
+                                <span class="label-text">Client secret</span>
+                                <input
+                                    type="password"
+                                    id="oauthClientSecret"
+                                    autocomplete="new-password"
+                                    class="input input-bordered w-full font-mono-ycg text-sm"
+                                    placeholder="Stored only on this machine"
+                                />
+                            </label>
+                            <div class="flex flex-wrap items-center gap-3 pt-1">
+                                <button type="button" onclick="saveOAuthSettings()" class="btn btn-primary min-h-[2.5rem] px-5">Save credentials</button>
+                                <span id="oauthSaveStatus" class="text-xs leading-normal text-base-content/55"></span>
+                            </div>
+                            <ol class="ycg-instructions list-decimal space-y-2.5 pl-5 text-sm text-base-content/70">
+                                <li>Add the redirect URI in Google Cloud (must match exactly).</li>
+                                <li>Paste Client ID and secret here, then <strong class="font-medium text-base-content/85">Save credentials</strong>.</li>
+                                <li>Choose <strong class="font-medium text-base-content/85">Gemini</strong> or <strong class="font-medium text-base-content/85">LM Studio</strong> in the next card and save.</li>
+                                <li>Open <strong class="font-medium text-base-content/85">Live</strong>, sign in with Google, then start monitoring.</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-6 border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body gap-0 p-6 sm:p-8">
+                        <div class="ycg-card-stack ycg-card-stack-lg max-w-xl">
+                            <div>
+                                <h2 class="card-title text-lg font-semibold tracking-tight">AI moderation</h2>
+                                <p class="ycg-prose mt-2 text-sm text-base-content/70">
+                                    <strong class="font-semibold text-base-content/90">Google Gemini</strong> uses a Google AI API key (cloud).
+                                    <strong class="font-semibold text-base-content/90">LM Studio</strong> runs on this computer: start LM Studio, load a model, turn on the local server (usually
+                                    <span class="font-mono-ycg text-xs">http://localhost:1234</span>), then enter the same <strong class="font-semibold">model id</strong> shown in LM Studio.
+                                    If the primary model fails, the app tries the other provider automatically.
+                                </p>
+                            </div>
+                            <label class="form-control w-full max-w-md">
+                                <span class="label-text">AI engine</span>
+                                <select id="aiProviderSelect" class="select select-bordered w-full" aria-label="AI engine" onchange="syncAiProviderPanels()">
+                                    <option value="gemini">Google Gemini</option>
+                                    <option value="lmstudio">LM Studio (local)</option>
+                                </select>
+                            </label>
+                            <p id="aiProviderSelectHint" class="hidden text-xs text-base-content/55">OpenAI-compatible mode is on — turn it off in Advanced to use this dropdown.</p>
+
+                            <div id="aiLmstudioBlock" class="ycg-card-stack hidden rounded-xl border border-base-300 bg-base-200/40 p-4">
+                                <p class="text-xs font-medium text-base-content/60">LM Studio local server</p>
+                                <label class="form-control w-full">
+                                    <span class="label-text">Server URL</span>
+                                    <input type="text" id="aiLmstudioUrl" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="http://localhost:1234" autocomplete="off" />
+                                </label>
+                                <label class="form-control w-full">
+                                    <span class="label-text">Model id</span>
+                                    <input type="text" id="aiLmstudioModel" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="Copy from LM Studio → Local Server" autocomplete="off" />
+                                </label>
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <label class="form-control w-full">
+                                        <span class="label-text">Timeout (ms)</span>
+                                        <input type="number" id="aiLmstudioTimeout" class="input input-bordered w-full font-mono-ycg text-sm" min="1000" step="500" />
+                                    </label>
+                                    <label class="form-control w-full">
+                                        <span class="label-text">Max tokens</span>
+                                        <input type="number" id="aiLmstudioMaxTokens" class="input input-bordered w-full font-mono-ycg text-sm" min="16" step="16" />
+                                    </label>
+                                </div>
+                                <label class="label cursor-pointer justify-start gap-3">
+                                    <input type="checkbox" id="aiLmstudioLangGraph" class="checkbox checkbox-sm checkbox-primary" checked />
+                                    <span class="label-text text-sm font-normal normal-case">Use LangGraph moderation path (recommended)</span>
+                                </label>
+                            </div>
+
+                            <div id="aiGeminiBlock" class="ycg-card-stack hidden rounded-xl border border-base-300 bg-base-200/40 p-4">
+                                <label class="form-control w-full">
+                                    <span class="label-text">Gemini model</span>
+                                    <input type="text" id="aiGeminiModel" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="e.g. gemini-2.0-flash or gemini-1.5-flash" autocomplete="off" />
+                                </label>
+                                <label class="form-control w-full">
+                                    <span class="label-text">Google AI API key</span>
+                                    <input type="password" id="aiGeminiApiKey" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="From Google AI Studio — leave blank to keep saved key" autocomplete="new-password" />
+                                </label>
+                                <p id="aiGeminiKeyHint" class="text-xs text-base-content/55"></p>
+                            </div>
+
+                            <div id="aiOpenaiBlock" class="ycg-card-stack hidden rounded-xl border border-base-300 bg-base-200/40 p-4">
+                                <p class="text-xs font-medium text-base-content/60">OpenAI-compatible endpoint</p>
+                                <label class="form-control w-full">
+                                    <span class="label-text">Base URL</span>
+                                    <input type="text" id="aiOpenaiBaseUrl" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="https://api.openai.com/v1" autocomplete="off" />
+                                </label>
+                                <label class="form-control w-full">
+                                    <span class="label-text">Model</span>
+                                    <input type="text" id="aiOpenaiModel" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="gpt-3.5-turbo" autocomplete="off" />
+                                </label>
+                                <label class="form-control w-full">
+                                    <span class="label-text">API key</span>
+                                    <input type="password" id="aiOpenaiApiKey" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="Leave blank to keep existing key" autocomplete="new-password" />
+                                </label>
+                                <p id="aiOpenaiKeyHint" class="text-xs text-base-content/55"></p>
+                            </div>
+
+                            <details id="aiAdvancedDetails" class="rounded-xl border border-base-300 bg-base-200/25">
+                                <summary class="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">Advanced</summary>
+                                <div class="border-t border-base-300/80 px-4 pb-4 pt-3">
+                                    <div class="ycg-card-stack max-w-xl">
+                                        <label class="label cursor-pointer justify-start gap-3">
+                                            <input type="checkbox" id="aiUseOpenaiAdvanced" class="checkbox checkbox-sm checkbox-primary" onchange="syncAiProviderPanels()" />
+                                            <span class="label-text text-sm font-normal normal-case">Use OpenAI-compatible API instead of Gemini / LM Studio</span>
+                                        </label>
+                                        <label class="form-control w-full max-w-xl">
+                                            <span class="label-text">Custom fallback order (optional)</span>
+                                            <input type="text" id="aiFallbackProviders" class="input input-bordered w-full font-mono-ycg text-sm" placeholder="Leave empty for automatic (e.g. lmstudio then gemini)" autocomplete="off" />
+                                        </label>
+                                        <p class="text-xs text-base-content/50">If empty, fallbacks are chosen for you based on the AI engine above.</p>
+                                    </div>
+                                </div>
+                            </details>
+
+                            <div class="flex flex-wrap items-center gap-3 pt-1">
+                                <button type="button" onclick="saveAISettings()" class="btn btn-primary min-h-[2.5rem] px-5">Save AI settings</button>
+                                <span id="aiSettingsStatus" class="text-xs leading-normal text-base-content/55"></span>
+                            </div>
+                            <p class="text-xs leading-relaxed text-base-content/45">
+                                Stored in <span class="font-mono-ycg">settings.json</span>. Optional env override: <span class="font-mono-ycg">YTCHATGUARD_ENV_OVERRIDES=1</span>. <span class="font-mono-ycg">PORT</span> is always applied for the web server.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-6 border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body gap-0 p-6 sm:p-8">
+                        <div class="ycg-card-stack ycg-card-stack-lg max-w-xl">
+                            <div>
+                                <h2 class="card-title text-lg font-semibold tracking-tight">YouTube enforcement</h2>
+                                <p class="ycg-prose mt-2 text-sm text-base-content/70">
+                                    Optional: call YouTube’s <strong class="font-semibold text-base-content/90">liveChatBans</strong> API so timeouts and bans apply to the viewer in chat, not only template messages.
+                                    <strong class="font-semibold text-base-content/90">Dangerous</strong> — test with toggles off first. Your signed-in account must be a <strong class="font-semibold">moderator</strong> on that live chat. Chat moderators and the owner are skipped.
+                                </p>
+                            </div>
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox" id="modEnabled" class="checkbox checkbox-sm checkbox-primary" checked />
+                                <span class="label-text text-sm font-normal normal-case">Enable AI moderation (when off, rule-based blocks still apply; AI queue is skipped)</span>
+                            </label>
+                            <label class="form-control w-full max-w-xs">
+                                <span class="label-text">Strictness</span>
+                                <select id="modStrictness" class="select select-bordered select-sm w-full" aria-label="Moderation strictness">
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                </select>
+                            </label>
+                            <p class="text-xs font-medium text-base-content/60">Chat templates (use <span class="font-mono-ycg">{author}</span> for the viewer name)</p>
+                            <label class="form-control w-full">
+                                <span class="label-text">Warning message</span>
+                                <textarea id="modTplWarning" class="textarea textarea-bordered w-full min-h-[4rem] font-mono-ycg text-sm" rows="2"></textarea>
+                            </label>
+                            <label class="form-control w-full">
+                                <span class="label-text">Timeout message</span>
+                                <textarea id="modTplTimeout" class="textarea textarea-bordered w-full min-h-[4rem] font-mono-ycg text-sm" rows="2"></textarea>
+                            </label>
+                            <label class="form-control w-full">
+                                <span class="label-text">Ban message</span>
+                                <textarea id="modTplBan" class="textarea textarea-bordered w-full min-h-[4rem] font-mono-ycg text-sm" rows="2"></textarea>
+                            </label>
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox" id="modAutoRespond" class="checkbox checkbox-sm checkbox-primary" />
+                                <span class="label-text text-sm font-normal normal-case">Post chat messages on violations (templates)</span>
+                            </label>
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox" id="modAutoTimeout" class="checkbox checkbox-sm checkbox-primary" />
+                                <span class="label-text text-sm font-normal normal-case">Auto YouTube timeout when escalation is “timeout” (medium severity)</span>
+                            </label>
+                            <label class="form-control w-full max-w-xs">
+                                <span class="label-text">Timeout length (seconds)</span>
+                                <input type="number" id="modTimeoutSeconds" class="input input-bordered input-sm w-full font-mono-ycg" min="60" max="3600" step="30" />
+                            </label>
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox" id="modAutoBan" class="checkbox checkbox-sm checkbox-primary" />
+                                <span class="label-text text-sm font-normal normal-case">Auto YouTube permanent chat ban when escalation is “ban” (high severity or 3+ violations)</span>
+                            </label>
+                            <div class="flex flex-wrap items-center gap-3 pt-1">
+                                <button type="button" onclick="saveModerationSettings()" class="btn btn-primary min-h-[2.5rem] px-5">Save moderation</button>
+                                <span id="modSettingsStatus" class="text-xs leading-normal text-base-content/55"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-6 border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body gap-5 p-6 sm:p-8">
+                        <div>
+                            <h2 class="card-title text-lg font-semibold">Appearance</h2>
+                            <p class="ycg-prose mt-2 text-sm text-base-content/70">Pick a palette tuned for long sessions. Your choice is saved only in this browser.</p>
+                        </div>
+                        <div class="relative max-w-sm">
+                            <span class="mb-2 block text-[0.75rem] font-semibold uppercase tracking-[0.08em] text-base-content/50">Theme</span>
+                            <button
+                                type="button"
+                                id="themeMenuBtn"
+                                class="btn btn-outline btn-sm h-auto min-h-10 w-full justify-between gap-2 border-base-300 font-normal normal-case"
+                                aria-haspopup="listbox"
+                                aria-expanded="false"
+                                aria-controls="themeMenuPanel"
+                                title="Change theme"
+                            >
+                                <span class="flex min-w-0 flex-1 items-center gap-3">
+                                    <span id="themeMenuBtnSwatch" class="ycg-theme-swatch-grid shrink-0" aria-hidden="true"></span>
+                                    <span id="themeMenuBtnLabel" class="truncate text-left text-sm lowercase">sunset</span>
+                                </span>
+                                <svg class="h-4 w-4 shrink-0 opacity-50" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div
+                                id="themeMenuPanel"
+                                class="ycg-theme-panel absolute left-0 right-0 top-full z-[100] mt-1 hidden max-h-[min(24rem,70vh)] overflow-y-auto rounded-2xl border border-base-300 bg-base-100 p-1.5"
+                                role="listbox"
+                                aria-labelledby="themeMenuBtn"
+                                hidden
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border border-base-300 bg-base-100 shadow-xl">
+                    <div class="card-body gap-5 p-6 sm:p-8">
+                        <h2 class="card-title text-lg font-semibold">Developer</h2>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" onclick="refreshSystemInfo()" class="btn btn-outline btn-sm min-h-9">Refresh status</button>
+                            <button type="button" onclick="exportData('json')" class="btn btn-outline btn-sm min-h-9">Export JSON</button>
+                            <button type="button" onclick="exportData('csv')" class="btn btn-outline btn-sm min-h-9">Export CSV</button>
+                            <button type="button" onclick="loadRawMessages()" class="btn btn-primary btn-sm min-h-9">Load messages</button>
+                        </div>
+                        <div class="grid gap-6 md:grid-cols-2">
+                            <div>
+                                <h3 class="mb-2 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-base-content/55">Runtime</h3>
+                                <div id="systemInfo" class="font-mono-ycg rounded-lg border border-base-300/80 bg-base-200 p-3 text-xs leading-relaxed">Loading…</div>
+                            </div>
+                            <div>
+                                <h3 class="mb-2 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-base-content/55">AI test</h3>
+                                <div class="flex flex-wrap items-stretch gap-2">
+                                    <input type="text" id="testMessage" class="input input-bordered input-sm min-h-9 min-w-0 flex-1 font-mono-ycg" placeholder="Test message…">
+                                    <button type="button" onclick="testAI()" class="btn btn-primary btn-sm min-h-9 shrink-0">Test</button>
+                                </div>
+                                <div id="aiTestResult" class="font-mono-ycg mt-3 min-h-[4.5rem] rounded-lg border border-base-300/80 bg-base-200 p-3 text-xs leading-relaxed text-base-content/70">Enter a message…</div>
+                            </div>
+                        </div>
+                        <div class="rounded-lg border border-base-300">
+                            <div class="border-b border-base-300 px-3 py-2.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-base-content/55">Debug log</div>
+                            <div id="debugLog" class="font-mono-ycg max-h-32 overflow-y-auto p-3 text-xs leading-relaxed">
+                                <div class="log-slide text-info">Debug ready</div>
+                            </div>
+                        </div>
+                        <div class="rounded-lg border border-base-300">
+                            <div class="border-b border-base-300 px-3 py-2.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-base-content/55">Raw sample</div>
+                            <div id="rawMessages" class="font-mono-ycg max-h-32 overflow-y-auto p-3 text-xs leading-relaxed text-base-content/60">Click “Load messages”…</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const THEME_STORAGE_KEY = 'ytchatguard-theme';
+        /** Order + swatches — keep in sync with tailwind.config.js `daisyui.themes`. Colors from DaisyUI theme tokens (primary, secondary, accent, neutral). */
+        const DAISY_THEMES = [
+            { id: 'autumn', label: 'autumn', sw: ['#8C0327', '#D85251', '#D59B6A', '#826A5C'] },
+            { id: 'business', label: 'business', sw: ['#1C4E80', '#7C909A', '#EA6947', '#23282E'] },
+            { id: 'acid', label: 'acid', sw: ['#f472b6', '#fb923c', '#bef264', '#1e1b4b'] },
+            { id: 'lemonade', label: 'lemonade', sw: ['#4ade80', '#86efac', '#fde047', '#365314'] },
+            { id: 'night', label: 'night', sw: ['#38bdf8', '#818CF8', '#F471B5', '#1E293B'] },
+            { id: 'coffee', label: 'coffee', sw: ['#DB924B', '#263E3F', '#10576D', '#120C12'] },
+            { id: 'winter', label: 'winter', sw: ['#3b82f6', '#463AA2', '#C148AC', '#021431'] },
+            { id: 'dim', label: 'dim', sw: ['#9FE88D', '#FF7D5C', '#C792E9', '#1c212b'] },
+            { id: 'nord', label: 'nord', sw: ['#5E81AC', '#81A1C1', '#88C0D0', '#4C566A'] },
+            { id: 'sunset', label: 'sunset', sw: ['#FF865B', '#FD6F9C', '#B387FA', '#3d4a5c'] }
+        ];
+
+        let isMonitoring = false;
+        let statsInterval;
+        let currentTab = 'monitor';
+
+        function getStoredTheme() {
+            const fallback = 'sunset';
+            const allowed = new Set(DAISY_THEMES.map((t) => t.id));
+            try {
+                const raw = localStorage.getItem(THEME_STORAGE_KEY) || fallback;
+                return allowed.has(raw) ? raw : fallback;
+            } catch (e) {
+                return fallback;
+            }
+        }
+
+        function themeSwatchInnerHTML(sw) {
+            return sw
+                .map(
+                    (c) =>
+                        `<span class="ycg-theme-dot" style="background:${c}"></span>`
+                )
+                .join('');
+        }
+
+        function syncThemePickerUI(activeId) {
+            const meta = DAISY_THEMES.find((t) => t.id === activeId);
+            const labelEl = document.getElementById('themeMenuBtnLabel');
+            const swatchEl = document.getElementById('themeMenuBtnSwatch');
+            if (labelEl && meta) labelEl.textContent = meta.label;
+            if (swatchEl && meta) swatchEl.innerHTML = themeSwatchInnerHTML(meta.sw);
+            const panel = document.getElementById('themeMenuPanel');
+            if (panel) {
+                panel.querySelectorAll('[role="option"]').forEach((row) => {
+                    const id = row.getAttribute('data-theme-id');
+                    const on = id === activeId;
+                    row.setAttribute('aria-selected', on ? 'true' : 'false');
+                    const check = row.querySelector('.ycg-theme-check');
+                    if (check) check.classList.toggle('opacity-0', !on);
+                });
+            }
+        }
+
+        function setThemeMenuOpen(open) {
+            const btn = document.getElementById('themeMenuBtn');
+            const panel = document.getElementById('themeMenuPanel');
+            if (!btn || !panel) return;
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            panel.classList.toggle('hidden', !open);
+            panel.hidden = !open;
+        }
+
+        function applyTheme(name) {
+            const allowed = new Set(DAISY_THEMES.map((t) => t.id));
+            const resolved = allowed.has(name) ? name : 'sunset';
+            document.documentElement.setAttribute('data-theme', resolved);
+            try {
+                localStorage.setItem(THEME_STORAGE_KEY, resolved);
+            } catch (e) {}
+            syncThemePickerUI(resolved);
+        }
+
+        function initThemeSelect() {
+            const btn = document.getElementById('themeMenuBtn');
+            const panel = document.getElementById('themeMenuPanel');
+            if (!btn || !panel || btn.dataset.themeInited === '1') return;
+            btn.dataset.themeInited = '1';
+
+            panel.innerHTML = DAISY_THEMES.map((t) => {
+                const sw = themeSwatchInnerHTML(t.sw);
+                return `<button type="button" role="option" data-theme-id="${t.id}" title="Change theme"
+                    class="ycg-theme-row flex w-full cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-base-200">
+                    <span class="ycg-theme-swatch-grid shrink-0" aria-hidden="true">${sw}</span>
+                    <span class="flex-1 text-sm font-medium lowercase text-base-content">${t.label}</span>
+                    <span class="ycg-theme-check flex h-5 w-5 shrink-0 items-center justify-center text-base-content opacity-0" aria-hidden="true">
+                        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+                    </span>
+                </button>`;
+            }).join('');
+
+            panel.querySelectorAll('[role="option"]').forEach((row) => {
+                row.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = row.getAttribute('data-theme-id');
+                    if (id) applyTheme(id);
+                    setThemeMenuOpen(false);
+                });
+            });
+
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const open = btn.getAttribute('aria-expanded') === 'true';
+                setThemeMenuOpen(!open);
+            });
+
+            document.addEventListener('click', () => setThemeMenuOpen(false));
+            panel.addEventListener('click', (e) => e.stopPropagation());
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') setThemeMenuOpen(false);
+            });
+
+            applyTheme(getStoredTheme());
+        }
+
+        function initElectronTitlebar() {
+            const api = window.ytchatguard;
+            if (!api) return;
+            if (api.platform === 'darwin') {
+                document.documentElement.classList.add('ycg-electron-mac');
+            }
+            const bar = document.getElementById('electronTitlebar');
+            if (bar) bar.classList.remove('hidden');
+            const iconMax = document.getElementById('electronIconMax');
+            function setMaxIcon(isMax) {
+                if (!iconMax) return;
+                if (isMax) {
+                    iconMax.innerHTML =
+                        '<rect x="2" y="2" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1"/><rect x="0" y="0" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1"/>';
+                } else {
+                    iconMax.innerHTML =
+                        '<rect x="0" y="0" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/>';
+                }
+            }
+            document.getElementById('electronBtnMin')?.addEventListener('click', () => api.minimizeWindow());
+            document.getElementById('electronBtnMax')?.addEventListener('click', () => api.toggleMaximize());
+            document.getElementById('electronBtnClose')?.addEventListener('click', () => api.closeWindow());
+            if (typeof api.onMaximizedChange === 'function') {
+                api.onMaximizedChange((isMax) => setMaxIcon(isMax));
+            }
+        }
+
+        function actionTypePill(type) {
+            const t = (type || 'warning').toLowerCase();
+            const cls = t === 'ban' ? 'badge-error' : t === 'timeout' ? 'badge-info' : 'badge-warning';
+            const label = t === 'ban' ? 'Ban notice' : t === 'timeout' ? 'Timeout' : 'Warning';
+            return `<span class="badge ${cls} badge-sm badge-outline">${label}</span>`;
+        }
+
+        function severityPill(sev) {
+            const s = (sev || 'low').toLowerCase();
+            const cls = s === 'high' ? 'badge-error' : s === 'medium' ? 'badge-warning' : 'badge-ghost';
+            return `<span class="badge ${cls} badge-sm">${s}</span>`;
+        }
+
+        function youtubeApiPill(a) {
+            const yt = a.youtubeAction;
+            if (!yt || yt === 'none') return '<span class="opacity-40">—</span>';
+            if (a.youtubeActionOk) {
+                const lab = yt === 'timeout' ? 'Timeout' : yt === 'ban' ? 'Ban' : yt;
+                return `<span class="badge badge-success badge-sm badge-outline">${lab}</span>`;
+            }
+            const err = escapeHtml(a.youtubeActionError || 'error');
+            return `<span class="badge badge-error badge-sm badge-outline" title="${err}">Fail</span>`;
+        }
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        async function loadModerationActions() {
+            const tbody = document.getElementById('actionsTableBody');
+            const totalEl = document.getElementById('actionsTotal');
+            try {
+                const r = await fetch('/api/moderation/actions?limit=100&offset=0');
+                const data = await r.json();
+                const rows = data.actions || [];
+                totalEl.textContent = `${data.total || 0} actions recorded`;
+                if (!rows.length) {
+                    tbody.innerHTML =
+                        '<tr><td colspan="8" class="opacity-50">No moderation actions yet.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = rows
+                    .map((a) => {
+                        const at = a.at ? new Date(a.at).toLocaleString() : '—';
+                        const planned = escapeHtml((a.plannedText || a.chatResponse || '').slice(0, 200));
+                        let reply;
+                        if (a.responseSent) {
+                            reply = planned;
+                        } else if (!a.autoRespondEnabled) {
+                            reply = planned
+                                ? `${planned} <span class="opacity-50">(not sent)</span>`
+                                : '<span class="opacity-50">—</span>';
+                        } else {
+                            reply = `<span class="opacity-50">Send failed: ${escapeHtml(a.responseError || 'unknown')}</span>`;
+                        }
+                        return `<tr>
+                        <td class="font-mono-ycg text-xs whitespace-nowrap">${escapeHtml(at)}</td>
+                        <td>${actionTypePill(a.actionType)}</td>
+                        <td class="whitespace-nowrap">${youtubeApiPill(a)}</td>
+                        <td><strong>${escapeHtml(a.author || '—')}</strong><div class="mt-1 font-mono-ycg text-[11px] opacity-60">${escapeHtml((a.authorId || '').slice(0, 18))}${(a.authorId || '').length > 18 ? '…' : ''}</div></td>
+                        <td>${severityPill(a.severity)}</td>
+                        <td class="font-mono-ycg text-xs">${escapeHtml(a.method || '—')}</td>
+                        <td class="max-w-[14rem] text-xs opacity-80">${escapeHtml(a.messagePreview || '')}</td>
+                        <td class="max-w-[14rem] text-xs opacity-80">${reply}</td>
+                    </tr>`;
+                    })
+                    .join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="8" class="opacity-50">Could not load: ${escapeHtml(e.message)}</td></tr>`;
+            }
+        }
+
+        function setNavActive(tabName) {
+            document.querySelectorAll('.nav-item').forEach((btn) => {
+                const isActive = btn.dataset.tab === tabName;
+                btn.classList.toggle('border-primary', isActive);
+                btn.classList.toggle('bg-primary/10', isActive);
+                btn.classList.toggle('font-semibold', isActive);
+                btn.classList.toggle('border-transparent', !isActive);
+                if (isActive) btn.setAttribute('aria-current', 'page');
+                else btn.removeAttribute('aria-current');
+            });
+        }
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+            setNavActive(tabName);
+            document.querySelectorAll('.ycg-page').forEach((content) => {
+                content.classList.toggle('hidden', content.id !== tabName);
+            });
+            if (tabName === 'system') {
+                loadOAuthSettingsForm();
+                loadAISettingsForm();
+                loadModerationSettingsForm();
+                initThemeSelect();
+            }
+            if (tabName === 'insights') loadModerationActions();
+        }
+
+        function addLog(message, type = 'info') {
+            const container = document.getElementById('activityLog');
+            const entry = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            const cls = {
+                info: 'text-info',
+                success: 'text-success',
+                warning: 'text-warning',
+                error: 'text-error'
+            };
+            entry.className = `log-slide ${cls[type] || cls.info}`;
+            entry.textContent = `[${time}] ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function addDebugLog(message, type = 'info') {
+            const container = document.getElementById('debugLog');
+            const entry = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            const cls = {
+                info: 'text-info',
+                success: 'text-success',
+                warning: 'text-warning',
+                error: 'text-error'
+            };
+            entry.className = `log-slide ${cls[type] || cls.info}`;
+            entry.textContent = `[${time}] ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('activityLog').innerHTML =
+                '<div class="log-slide text-info">Logs cleared</div>';
+        }
+
+        async function testConnection() {
+            addLog('Testing YouTube connection…', 'info');
+            try {
+                const response = await fetch('/api/test-connection', { method: 'GET' });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('Connected successfully', 'success');
+                    updateStatus('connected');
+                } else {
+                    addLog(`Failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addLog(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function toggleMonitoring() {
+            const btn = document.getElementById('monitorBtn');
+            if (!isMonitoring) {
+                const videoId = document.getElementById('videoId').value.trim();
+                try {
+                    const response = await fetch('/api/monitoring/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(videoId ? { videoId } : {})
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        isMonitoring = true;
+                        btn.textContent = 'Stop monitoring';
+                        btn.classList.remove('btn-primary');
+                        btn.classList.add('btn-error');
+                        addLog('Monitoring started', 'success');
+                        updateStatus('active');
+                        startStatsUpdates();
+                    } else {
+                        addLog(`Failed: ${result.error}`, 'error');
+                    }
+                } catch (error) {
+                    addLog(`Error: ${error.message}`, 'error');
+                }
+            } else {
+                try {
+                    await fetch('/api/monitoring/stop', { method: 'POST' });
+                    isMonitoring = false;
+                    btn.textContent = 'Start monitoring';
+                    btn.classList.add('btn-primary');
+                    btn.classList.remove('btn-error');
+                    addLog('Monitoring stopped', 'info');
+                    updateStatus('connected');
+                    stopStatsUpdates();
+                } catch (error) {
+                    addLog(`Error: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        function updateStatus(status) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            dot.classList.remove('bg-error', 'bg-warning', 'bg-success', 'animate-pulse');
+            const states = {
+                offline: { cls: 'bg-error', label: 'Offline', pulse: true },
+                connected: { cls: 'bg-warning', label: 'Connected', pulse: true },
+                active: { cls: 'bg-success', label: 'Monitoring', pulse: true }
+            };
+            const s = states[status] || states.offline;
+            dot.classList.add(s.cls);
+            if (s.pulse) dot.classList.add('animate-pulse');
+            text.textContent = s.label;
+        }
+
+        function startStatsUpdates() {
+            if (statsInterval) clearInterval(statsInterval);
+            statsInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/smart-stats');
+                    const stats = await response.json();
+                    document.getElementById('totalMessages').textContent = stats.totalMessages || 0;
+                    document.getElementById('flaggedMessages').textContent = stats.flaggedMessages || 0;
+                    document.getElementById('aiProcessed').textContent = stats.aiProcessed || 0;
+                    document.getElementById('efficiency').textContent = `${stats.efficiency || 0}%`;
+                    const eff = Math.min(100, Math.max(0, stats.efficiency || 0));
+                    document.getElementById('efficiencyRate').textContent = `${eff}%`;
+                    const bar = document.getElementById('efficiencyBar');
+                    if (bar && bar.tagName === 'PROGRESS') {
+                        bar.value = eff;
+                    }
+                    document.getElementById('avgResponseTime').textContent = `${stats.avgResponseTime || 0}ms`;
+                    document.getElementById('cacheHitRate').textContent = `${stats.cacheHitRate || 0}%`;
+                    document.getElementById('processed').textContent = stats.processed || 0;
+                    document.getElementById('cached').textContent = stats.cached || 0;
+                    document.getElementById('skipped').textContent = stats.skipped || 0;
+                    const ma = stats.moderationActions || {};
+                    document.getElementById('maWarning').textContent = ma.warning ?? 0;
+                    document.getElementById('maTimeout').textContent = ma.timeout ?? 0;
+                    document.getElementById('maBan').textContent = ma.ban ?? 0;
+                } catch (error) {
+                    console.error('Stats error:', error);
+                }
+            }, 2000);
+        }
+
+        function stopStatsUpdates() {
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+        }
+
+        async function refreshSystemInfo() {
+            try {
+                const response = await fetch('/api/debug');
+                const debug = await response.json();
+                document.getElementById('systemInfo').innerHTML = `
+                    <div class="flex flex-col gap-2.5">
+                    <div class="flex justify-between gap-4 text-xs leading-snug"><span class="text-base-content/60">Status</span><span class="font-medium ${debug.isActive ? 'text-success' : 'text-error'}">${debug.isActive ? 'Active' : 'Inactive'}</span></div>
+                    <div class="flex justify-between gap-4 text-xs leading-snug"><span class="text-base-content/60">Video</span><span class="text-right font-mono-ycg">${debug.videoId || 'None'}</span></div>
+                    <div class="flex justify-between gap-4 text-xs leading-snug"><span class="text-base-content/60">Messages</span><span class="font-mono-ycg font-medium">${debug.messageCount || 0}</span></div>
+                    <div class="flex justify-between gap-4 text-xs leading-snug"><span class="text-base-content/60">AI</span><span class="font-mono-ycg">${debug.aiProvider || 'Unknown'}</span></div>
+                    <div class="flex justify-between gap-4 text-xs leading-snug"><span class="text-base-content/60">Uptime</span><span class="font-mono-ycg">${Math.floor((debug.uptime || 0) / 1000)}s</span></div>
+                    </div>
+                `;
+                addDebugLog('Refreshed', 'success');
+            } catch (error) {
+                addDebugLog(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testAI() {
+            const message = document.getElementById('testMessage').value;
+            if (!message) {
+                addDebugLog('Enter a message', 'warning');
+                return;
+            }
+            addDebugLog(`Testing: "${message}"`, 'info');
+            try {
+                const response = await fetch('/api/dev/test-ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+                const result = await response.json();
+                document.getElementById('aiTestResult').textContent = JSON.stringify(result, null, 2);
+                addDebugLog('Test complete', 'success');
+            } catch (error) {
+                addDebugLog(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadRawMessages() {
+            try {
+                const response = await fetch('/api/dev/messages/raw?limit=20');
+                const messages = await response.json();
+                document.getElementById('rawMessages').textContent = JSON.stringify(messages, null, 2);
+                addDebugLog('Loaded', 'success');
+            } catch (error) {
+                addDebugLog(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function exportData(format) {
+            window.open(`/api/dev/export/${format}`, '_blank');
+            addDebugLog(`Exported ${format}`, 'success');
+        }
+
+        async function refreshAuthBanner() {
+            const text = document.getElementById('authBannerText');
+            const banner = document.getElementById('authBanner');
+            const link = document.getElementById('signInLink');
+            const settingsBtn = document.getElementById('openSettingsBtn');
+            try {
+                const r = await fetch('/api/auth/status');
+                const s = await r.json();
+                banner.classList.remove('alert-warning', 'alert-success', 'alert-info');
+                if (!s.oauthConfigured) {
+                    text.textContent = s.message || 'Open System: add Google OAuth credentials, then choose Gemini or LM Studio.';
+                    banner.classList.add('alert', 'alert-warning');
+                    settingsBtn.classList.remove('hidden');
+                    link.classList.add('hidden');
+                    return;
+                }
+                settingsBtn.classList.add('hidden');
+                link.classList.remove('hidden');
+                if (s.authenticated && s.channel) {
+                    text.textContent = `Signed in as ${s.channel.title}`;
+                    banner.classList.add('alert', 'alert-success');
+                    link.textContent = 'Re-connect Google';
+                } else {
+                    text.textContent = s.message || 'Sign in to access your live chat.';
+                    banner.classList.add('alert', 'alert-info');
+                    link.textContent = 'Sign in with Google';
+                }
+            } catch (e) {
+                text.textContent = 'Could not load auth status.';
+                banner.classList.add('alert', 'alert-warning');
+            }
+        }
+
+        function syncAiProviderPanels() {
+            const sel = document.getElementById('aiProviderSelect');
+            const openaiCb = document.getElementById('aiUseOpenaiAdvanced');
+            const hint = document.getElementById('aiProviderSelectHint');
+            if (!sel || !openaiCb) return;
+            const useOpenai = openaiCb.checked;
+            sel.disabled = useOpenai;
+            if (hint) hint.classList.toggle('hidden', !useOpenai);
+            const p = sel.value;
+            const lm = document.getElementById('aiLmstudioBlock');
+            const gm = document.getElementById('aiGeminiBlock');
+            const op = document.getElementById('aiOpenaiBlock');
+            if (useOpenai) {
+                if (lm) lm.classList.add('hidden');
+                if (gm) gm.classList.add('hidden');
+                if (op) op.classList.remove('hidden');
+            } else {
+                if (lm) lm.classList.toggle('hidden', p !== 'lmstudio');
+                if (gm) gm.classList.toggle('hidden', p !== 'gemini');
+                if (op) op.classList.add('hidden');
+            }
+        }
+
+        async function loadAISettingsForm() {
+            const status = document.getElementById('aiSettingsStatus');
+            try {
+                const r = await fetch('/api/settings/ai');
+                if (!r.ok) throw new Error('Load failed');
+                const s = await r.json();
+                const prov = document.getElementById('aiProviderSelect');
+                const openaiCb = document.getElementById('aiUseOpenaiAdvanced');
+                const adv = document.getElementById('aiAdvancedDetails');
+                if (s.provider === 'openai') {
+                    if (openaiCb) openaiCb.checked = true;
+                    if (adv) adv.open = true;
+                    if (prov) prov.value = 'gemini';
+                } else {
+                    if (openaiCb) openaiCb.checked = false;
+                    if (prov) prov.value = s.provider || 'gemini';
+                }
+                const fb = document.getElementById('aiFallbackProviders');
+                if (fb) {
+                    fb.value = Array.isArray(s.fallbackProviders)
+                        ? s.fallbackProviders.join(', ')
+                        : (s.fallbackProviders || '');
+                }
+                if (s.lmstudio) {
+                    document.getElementById('aiLmstudioUrl').value = s.lmstudio.url || '';
+                    document.getElementById('aiLmstudioModel').value = s.lmstudio.model || '';
+                    document.getElementById('aiLmstudioTimeout').value = s.lmstudio.timeout ?? '';
+                    document.getElementById('aiLmstudioMaxTokens').value = s.lmstudio.maxTokens ?? '';
+                    const cb = document.getElementById('aiLmstudioLangGraph');
+                    if (cb) cb.checked = s.lmstudio.useLangGraph !== false;
+                }
+                if (s.gemini) {
+                    document.getElementById('aiGeminiModel').value = s.gemini.model || '';
+                    document.getElementById('aiGeminiApiKey').value = '';
+                    const gh = document.getElementById('aiGeminiKeyHint');
+                    if (gh) gh.textContent = s.gemini.hasApiKey ? 'A key is already saved. Enter a new key only to replace it.' : 'No API key saved yet.';
+                }
+                if (s.openai) {
+                    document.getElementById('aiOpenaiBaseUrl').value = s.openai.baseUrl || '';
+                    document.getElementById('aiOpenaiModel').value = s.openai.model || '';
+                    document.getElementById('aiOpenaiApiKey').value = '';
+                    const oh = document.getElementById('aiOpenaiKeyHint');
+                    if (oh) oh.textContent = s.openai.hasApiKey ? 'A key is already saved. Enter a new key only to replace it.' : 'No API key saved yet.';
+                }
+                syncAiProviderPanels();
+                if (status) status.textContent = '';
+            } catch (e) {
+                if (status) status.textContent = 'Could not load AI settings.';
+            }
+        }
+
+        async function saveAISettings() {
+            const status = document.getElementById('aiSettingsStatus');
+            const useOpenai = document.getElementById('aiUseOpenaiAdvanced').checked;
+            const provider = useOpenai ? 'openai' : document.getElementById('aiProviderSelect').value;
+            const fbTrim = document.getElementById('aiFallbackProviders').value.trim();
+            const body = {
+                provider,
+                lmstudioUrl: document.getElementById('aiLmstudioUrl').value.trim(),
+                lmstudioModel: document.getElementById('aiLmstudioModel').value.trim(),
+                lmstudioTimeout: document.getElementById('aiLmstudioTimeout').value,
+                lmstudioMaxTokens: document.getElementById('aiLmstudioMaxTokens').value,
+                lmstudioUseLangGraph: document.getElementById('aiLmstudioLangGraph').checked,
+                geminiModel: document.getElementById('aiGeminiModel').value.trim(),
+                geminiApiKey: document.getElementById('aiGeminiApiKey').value,
+                openaiBaseUrl: document.getElementById('aiOpenaiBaseUrl').value.trim(),
+                openaiModel: document.getElementById('aiOpenaiModel').value.trim(),
+                openaiApiKey: document.getElementById('aiOpenaiApiKey').value
+            };
+            if (fbTrim) body.fallbackProviders = fbTrim;
+            status.textContent = 'Saving…';
+            try {
+                const r = await fetch('/api/settings/ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.error || 'Save failed');
+                const msg = data.message || 'Saved.';
+                document.getElementById('aiGeminiApiKey').value = '';
+                document.getElementById('aiOpenaiApiKey').value = '';
+                await loadAISettingsForm();
+                status.textContent = msg;
+                await refreshSystemInfo();
+            } catch (e) {
+                status.textContent = e.message;
+            }
+        }
+
+        async function loadModerationSettingsForm() {
+            const status = document.getElementById('modSettingsStatus');
+            try {
+                const r = await fetch('/api/settings/moderation');
+                if (!r.ok) throw new Error('Load failed');
+                const s = await r.json();
+                const en = document.getElementById('modEnabled');
+                const st = document.getElementById('modStrictness');
+                const tw = document.getElementById('modTplWarning');
+                const tt = document.getElementById('modTplTimeout');
+                const tb = document.getElementById('modTplBan');
+                const ar = document.getElementById('modAutoRespond');
+                const at = document.getElementById('modAutoTimeout');
+                const ab = document.getElementById('modAutoBan');
+                const ts = document.getElementById('modTimeoutSeconds');
+                if (en) en.checked = s.enabled !== false;
+                if (st) st.value = s.strictness || 'medium';
+                if (tw && s.responses) tw.value = s.responses.warning || '';
+                if (tt && s.responses) tt.value = s.responses.timeout || '';
+                if (tb && s.responses) tb.value = s.responses.ban || '';
+                if (ar) ar.checked = s.autoRespond !== false;
+                if (at) at.checked = s.autoTimeout === true;
+                if (ab) ab.checked = s.autoBan === true;
+                if (ts) ts.value = s.timeoutSeconds ?? 300;
+                if (status) status.textContent = '';
+            } catch (e) {
+                if (status) status.textContent = 'Could not load moderation settings.';
+            }
+        }
+
+        async function saveModerationSettings() {
+            const status = document.getElementById('modSettingsStatus');
+            status.textContent = 'Saving…';
+            try {
+                const r = await fetch('/api/settings/moderation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        enabled: document.getElementById('modEnabled').checked,
+                        strictness: document.getElementById('modStrictness').value,
+                        responses: {
+                            warning: document.getElementById('modTplWarning').value,
+                            timeout: document.getElementById('modTplTimeout').value,
+                            ban: document.getElementById('modTplBan').value
+                        },
+                        autoRespond: document.getElementById('modAutoRespond').checked,
+                        autoTimeout: document.getElementById('modAutoTimeout').checked,
+                        autoBan: document.getElementById('modAutoBan').checked,
+                        timeoutSeconds: document.getElementById('modTimeoutSeconds').value
+                    })
+                });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.error || 'Save failed');
+                status.textContent = data.message || 'Saved.';
+            } catch (e) {
+                status.textContent = e.message;
+            }
+        }
+
+        async function loadOAuthSettingsForm() {
+            try {
+                const r = await fetch('/api/settings/oauth');
+                const o = await r.json();
+                document.getElementById('oauthRedirectUri').value = o.redirectUri || '';
+                document.getElementById('oauthClientId').value = o.clientId || '';
+                document.getElementById('oauthClientSecret').placeholder = o.hasClientSecret
+                    ? '•••••••• (enter new secret to replace)'
+                    : 'Paste client secret';
+            } catch (e) {
+                document.getElementById('oauthSaveStatus').textContent = 'Could not load settings.';
+            }
+        }
+
+        function copyRedirectUri() {
+            const el = document.getElementById('oauthRedirectUri');
+            el.select();
+            el.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(el.value).then(() => {
+                document.getElementById('oauthSaveStatus').textContent = 'Redirect URI copied.';
+                setTimeout(() => {
+                    document.getElementById('oauthSaveStatus').textContent = '';
+                }, 2000);
+            });
+        }
+
+        async function saveOAuthSettings() {
+            const status = document.getElementById('oauthSaveStatus');
+            const clientId = document.getElementById('oauthClientId').value.trim();
+            const clientSecret = document.getElementById('oauthClientSecret').value;
+            if (!clientId) {
+                status.textContent = 'Client ID is required.';
+                return;
+            }
+            if (!clientSecret.trim()) {
+                status.textContent = 'Client secret is required.';
+                return;
+            }
+            status.textContent = 'Saving…';
+            try {
+                const r = await fetch('/api/settings/oauth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientId, clientSecret })
+                });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.error || 'Save failed');
+                status.textContent = data.message || 'Saved.';
+                document.getElementById('oauthClientSecret').value = '';
+                await refreshAuthBanner();
+            } catch (e) {
+                status.textContent = e.message;
+            }
+        }
+
+        window.addEventListener('load', () => {
+            initElectronTitlebar();
+            initThemeSelect();
+            addLog('ChatGuard ready', 'success');
+            refreshSystemInfo();
+            refreshAuthBanner();
+            loadOAuthSettingsForm();
+            loadAISettingsForm();
+            loadModerationSettingsForm();
+            fetch('/api/smart-stats')
+                .then((r) => r.json())
+                .then((stats) => {
+                    const ma = stats.moderationActions || {};
+                    document.getElementById('maWarning').textContent = ma.warning ?? 0;
+                    document.getElementById('maTimeout').textContent = ma.timeout ?? 0;
+                    document.getElementById('maBan').textContent = ma.ban ?? 0;
+                })
+                .catch(() => {});
+            const auth = new URLSearchParams(window.location.search).get('auth');
+            if (auth === 'success') addLog('Google sign-in completed', 'success');
+            if (auth === 'error') addLog('Google sign-in failed — try Sign in again', 'error');
+        });
+    </script>
+</body>
+</html>
