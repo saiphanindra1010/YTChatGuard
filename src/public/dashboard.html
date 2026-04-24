@@ -25,6 +25,13 @@
         .font-mono-ycg { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
         .ycg-titlebar-drag { -webkit-app-region: drag; app-region: drag; }
         .ycg-titlebar-nodrag { -webkit-app-region: no-drag; app-region: no-drag; }
+        :root {
+            /* Responsive top spacing for main content (mobile → desktop). */
+            --ycg-main-pad-top: clamp(1.25rem, 3vw, 3rem);
+        }
+        .ycg-main {
+            padding-top: var(--ycg-main-pad-top);
+        }
         /* macOS: native traffic lights sit top-left; keep title text out from under them */
         html.ycg-electron-mac #electronTitlebar:not(.hidden) .ycg-titlebar-drag {
             padding-left: 78px;
@@ -89,10 +96,14 @@
         }
         .ycg-app h1 {
             letter-spacing: -0.02em;
+            line-height: 1.2;
         }
         .ycg-page > header p,
         .ycg-prose {
-            line-height: 1.55;
+            line-height: 1.7;
+        }
+        .ycg-page > header p {
+            margin-top: 0.75rem;
         }
         .ycg-app .form-control {
             display: flex;
@@ -244,10 +255,10 @@
             </div>
         </aside>
 
-        <main class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-gradient-to-b from-base-200 to-base-300/30 px-4 py-7 md:px-8">
+        <main class="ycg-main min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-gradient-to-b from-base-200 to-base-300/30 px-4 md:px-8">
             <div class="mx-auto max-w-4xl">
             <section id="monitor" class="ycg-page" aria-labelledby="page-live">
-                <header class="mb-7">
+                <header class="mb-10">
                     <h1 id="page-live" class="text-2xl font-semibold tracking-tight text-base-content">Live stream</h1>
                     <p class="ycg-prose mt-2 max-w-2xl text-sm text-base-content/65">Connect your channel, optionally pin a video, then start monitoring.</p>
                 </header>
@@ -278,7 +289,7 @@
                     </div>
                 </div>
 
-                <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div class="stat rounded-box border border-base-300 bg-base-100 px-4 py-3 shadow">
                         <div class="stat-title text-xs">Messages</div>
                         <div id="totalMessages" class="stat-value text-2xl">0</div>
@@ -329,7 +340,7 @@
             </section>
 
             <section id="insights" class="ycg-page hidden" aria-labelledby="page-insights">
-                <header class="mb-7">
+                <header class="mb-10">
                     <h1 id="page-insights" class="text-2xl font-semibold tracking-tight text-base-content">Insights</h1>
                     <p class="ycg-prose mt-2 max-w-2xl text-sm text-base-content/65">Efficiency, queue mix, and moderation audit.</p>
                 </header>
@@ -408,10 +419,15 @@
             </section>
 
             <section id="system" class="ycg-page hidden" aria-labelledby="page-system">
-                <header class="mb-7">
+                <header class="mb-10">
                     <h1 id="page-system" class="text-2xl font-semibold tracking-tight text-base-content">System</h1>
-                    <p class="ycg-prose mt-2 max-w-2xl text-sm text-base-content/65">
-                        <strong class="font-medium text-base-content/85">Quick start:</strong> add Google OAuth credentials, pick <strong class="font-medium">Gemini</strong> or <strong class="font-medium">LM Studio</strong>, save, then sign in on <strong class="font-medium">Live</strong> and start monitoring.
+                    <p class="ycg-prose mt-3 max-w-2xl text-sm leading-relaxed text-base-content/65">
+                        <span class="mb-1 block">
+                            <strong class="font-medium text-base-content/85">Quick start</strong>
+                        </span>
+                        <span class="block">
+                            Add Google OAuth credentials, pick <strong class="font-medium">Gemini</strong> or <strong class="font-medium">LM Studio</strong>, save, then sign in on <strong class="font-medium">Live</strong> and start monitoring.
+                        </span>
                     </p>
                 </header>
 

@@ -66,7 +66,7 @@ class ChatMonitor extends EventEmitter {
       }
     };
     
-    console.log('🧠 Smart Balanced Monitor initialized - records everything, uses AI intelligently');
+    console.log('Smart Balanced Monitor initialized - records everything, uses AI intelligently');
   }
 
   /**
@@ -78,9 +78,9 @@ class ChatMonitor extends EventEmitter {
     }
 
     try {
-      console.log('🧠 Starting SMART BALANCED monitoring...');
-      console.log('✅ Will record EVERY message');
-      console.log('🤖 Will use AI intelligently (not on everything)');
+      console.log('Starting SMART BALANCED monitoring...');
+      console.log('Will record EVERY message');
+      console.log('Will use AI intelligently (not on everything)');
       
       await this._ensureStorageDir();
       await this._loadExistingData();
@@ -471,7 +471,7 @@ class ChatMonitor extends EventEmitter {
       // Get user context for better AI analysis
       const userContext = this._getUserContext(message.authorId);
       
-      console.log(`🤖 AI analyzing [${decision.priority}]: "${message.message.substring(0, 40)}..."`);
+      console.log(`AI analyzing [${decision.priority}]: "${message.message.substring(0, 40)}..."`);
       
       const analysis = await this.aiService.analyzeMessage(
         message.message,
@@ -523,7 +523,7 @@ class ChatMonitor extends EventEmitter {
         await this._handleViolation(message, analysis);
       }
 
-      console.log(`🤖 AI: ${analysis.isViolation ? '🚨' : '✅'} [${decision.priority}] (${analysis.processingTime}ms, conf: ${analysis.confidence})`);
+      console.log(`AI: ${analysis.isViolation ? '🚨' : '✅'} [${decision.priority}] (${analysis.processingTime}ms, conf: ${analysis.confidence})`);
 
     } catch (error) {
       console.error(`❌ AI analysis failed: ${error.message}`);

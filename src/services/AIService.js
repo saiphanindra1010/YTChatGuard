@@ -35,7 +35,7 @@ class AIService {
       this.currentProvider === 'lmstudio' && this._useLangGraph()
         ? ' (LangGraph + LM Studio)'
         : '';
-    console.log(`🤖 AI Service initialized with provider: ${this.currentProvider}${lg}`);
+    console.log(`AI Service initialized with provider: ${this.currentProvider}${lg}`);
   }
 
   _cfg(path, fallback = undefined) {

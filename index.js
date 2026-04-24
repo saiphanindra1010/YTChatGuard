@@ -35,8 +35,8 @@ class YTChatGuard extends EventEmitter {
     this.isMonitoring = false;
     this._listenPort = null;
 
-    console.log('🤖 YTChatGuard initialized - Smart AI moderation');
-    console.log('✅ Records every message | 🧠 Uses AI intelligently');
+    console.log('YTChatGuard initialized - Smart AI moderation');
+    console.log('Records every message | Uses AI intelligently');
   }
 
   /**
@@ -45,8 +45,8 @@ class YTChatGuard extends EventEmitter {
    */
   async initialize(options = {}) {
     try {
-      console.log('🚀 Initializing YTChatGuard Smart AI System...');
-      console.log('📊 Features: Complete message recording + intelligent AI usage');
+      console.log('Initializing YTChatGuard Smart AI System...');
+      console.log('Features: Complete message recording + intelligent AI usage');
 
       await this.config.load();
 
@@ -302,7 +302,7 @@ class YTChatGuard extends EventEmitter {
       }
     });
 
-    console.log('🔧 Developer routes enabled: /dev, /api/debug, /api/dev/*');
+    console.log('Developer routes enabled: /dev, /api/debug, /api/dev/*');
   }
 
   /**
@@ -719,7 +719,7 @@ class YTChatGuard extends EventEmitter {
   _setupEventListeners() {
     if (this.smartMonitor) {
       this.smartMonitor.on('violation', (data) => {
-        console.log(`🧠 Smart violation: ${data.message.author} [${data.analysis.method}]`);
+        console.log(`Smart violation: ${data.message.author} [${data.analysis.method}]`);
         this.emit('violation', data);
       });
 
@@ -733,11 +733,11 @@ class YTChatGuard extends EventEmitter {
       });
 
       this.smartMonitor.on('started', (data) => {
-        console.log('🧠 Smart monitoring started:', data);
+        console.log('Smart monitoring started:', data);
       });
 
       this.smartMonitor.on('stopped', (data) => {
-        console.log('🧠 Smart monitoring stopped:', data.summary);
+        console.log('Smart monitoring stopped:', data.summary);
       });
     }
   }

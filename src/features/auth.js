@@ -59,7 +59,7 @@ class YouTubeService {
     // Current live chat state
     this.liveChatId = null;
     
-    console.log('🎥 YouTube Service initialized');
+    console.log('YouTube Service initialized');
   }
 
   _prunePkceStore() {
