@@ -3,11 +3,12 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('ytchatguard', {
+contextBridge.exposeInMainWorld('safestream', {
   platform: process.platform,
-  minimizeWindow: () => ipcRenderer.send('ycg-window-minimize'),
-  toggleMaximize: () => ipcRenderer.send('ycg-window-toggle-maximize'),
-  closeWindow: () => ipcRenderer.send('ycg-window-close'),
+  getApiToken: () => ipcRenderer.invoke('ss-get-api-token'),
+  minimizeWindow: () => ipcRenderer.send('ss-window-minimize'),
+  toggleMaximize: () => ipcRenderer.send('ss-window-toggle-maximize'),
+  closeWindow: () => ipcRenderer.send('ss-window-close'),
   onMaximizedChange: (fn) => {
     const handler = (_e, isMax) => {
       try {
@@ -16,7 +17,7 @@ contextBridge.exposeInMainWorld('ytchatguard', {
         console.error(err);
       }
     };
-    ipcRenderer.on('ycg-maximized-changed', handler);
-    return () => ipcRenderer.removeListener('ycg-maximized-changed', handler);
+    ipcRenderer.on('ss-maximized-changed', handler);
+    return () => ipcRenderer.removeListener('ss-maximized-changed', handler);
   }
 });

@@ -19,7 +19,7 @@ module.exports = {
       'nord',
       'sunset'
     ],
-    darkTheme: 'sunset',
+    darkTheme: 'autumn',
     logs: false
   }
 };

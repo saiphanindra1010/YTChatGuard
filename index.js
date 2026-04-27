@@ -1,12 +1,24 @@
 /**
- * YTChatGuard Professional - Advanced Chat Moderation System
+ * SafeStream — AI-assisted YouTube live chat moderation
  * Intelligent AI-powered content analysis for YouTube live chat
  */
 
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
+const fs = require('fs').promises;
+const { assertSafeLocalUrl } = require('./src/config/UrlAllowlist');
 const EventEmitter = require('events');
+const axios = require('axios');
+
+const MAX_API_LIMIT = 500;
+const MAX_API_OFFSET = 5_000_000;
+
+function parseApiInt(value, fallback, min, max) {
+  const n = parseInt(String(value), 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
 
 // Import services
 const ConfigManager = require('./src/config/ConfigManager');
@@ -15,10 +27,10 @@ const ChatMonitor = require('./src/services/ChatMonitor');
 const AIService = require('./src/services/AIService');
 
 /**
- * YTChatGuard - Smart AI-Powered Live Chat Moderation
+ * SafeStream — smart AI-powered live chat moderation
  * Records ALL messages + Uses AI smartly for optimal performance
  */
-class YTChatGuard extends EventEmitter {
+class SafeStream extends EventEmitter {
   constructor() {
     super();
     
@@ -34,8 +46,10 @@ class YTChatGuard extends EventEmitter {
     // State
     this.isMonitoring = false;
     this._listenPort = null;
+    /** @type {string|null} Per-process secret for /api/* (set in _setupExpress). */
+    this._apiToken = null;
 
-    console.log('YTChatGuard initialized - Smart AI moderation');
+    console.log('SafeStream initialized — AI moderation');
     console.log('Records every message | Uses AI intelligently');
   }
 
@@ -45,7 +59,7 @@ class YTChatGuard extends EventEmitter {
    */
   async initialize(options = {}) {
     try {
-      console.log('Initializing YTChatGuard Smart AI System...');
+      console.log('Initializing SafeStream…');
       console.log('Features: Complete message recording + intelligent AI usage');
 
       await this.config.load();
@@ -62,7 +76,7 @@ class YTChatGuard extends EventEmitter {
         3000;
 
       await new Promise((resolve, reject) => {
-        this.server = this.app.listen(port, () => {
+        this.server = this.app.listen(port, '127.0.0.1', () => {
           const addr = this.server.address();
           this._listenPort =
             typeof addr === 'object' && addr ? addr.port : Number(port);
@@ -70,9 +84,9 @@ class YTChatGuard extends EventEmitter {
             options.oauthHost ||
             (options.electron ? '127.0.0.1' : 'localhost');
           console.log(
-            `✅ YTChatGuard running on http://${host}:${this._listenPort}`
+            `SafeStream running on http://${host}:${this._listenPort}`
           );
-          console.log(`🌐 Open http://127.0.0.1:${this._listenPort} for the interface`);
+          console.log(`Open http://127.0.0.1:${this._listenPort} for the interface`);
           resolve(true);
         });
         this.server.once('error', reject);
@@ -80,7 +94,7 @@ class YTChatGuard extends EventEmitter {
 
       return true;
     } catch (error) {
-      console.error('❌ Failed to initialize Smart system:', error);
+      console.error('Failed to initialize Smart system:', error);
       throw error;
     }
   }
@@ -115,6 +129,34 @@ class YTChatGuard extends EventEmitter {
       : this.config.get('server.port') || this.config.get('app.port') || 3000;
   }
 
+  /** Secret required in `X-SafeStream-Token` (or `_ss_token` query for GET export links). */
+  getApiToken() {
+    return this._apiToken;
+  }
+
+  _isPublicHttpRoute(req) {
+    const p = req.path || '';
+    if (req.method === 'GET' && (p === '/' || p === '/health')) return true;
+    if (req.method === 'GET' && (p.startsWith('/css/') || p.startsWith('/js/'))) {
+      return true;
+    }
+    if (req.method === 'GET' && (p === '/login' || p === '/callback')) return true;
+    if (req.method === 'GET' && p.startsWith('/auth/callback')) return true;
+    return false;
+  }
+
+  _apiAuthMiddleware(req, res, next) {
+    if (this._isPublicHttpRoute(req)) return next();
+    let sent = req.headers['x-safestream-token'] || '';
+    if (!sent && req.query && req.query._ss_token != null) {
+      sent = req.query._ss_token;
+    }
+    if (Array.isArray(sent)) sent = sent[0] || '';
+    sent = String(sent || '');
+    if (sent && sent === this._apiToken) return next();
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   /**
    * Recreate YouTube OAuth client after saving new credentials from Settings UI.
    */
@@ -137,14 +179,40 @@ class YTChatGuard extends EventEmitter {
    * Setup Express middleware and routes
    */
   _setupExpress() {
-    // Middleware
-    this.app.use(cors());
+    this._apiToken = crypto.randomBytes(32).toString('base64url');
+    this.app.disable('x-powered-by');
+    this.app.set('trust proxy', false);
+    this.app.use((req, res, next) => {
+      const host = String(req.headers.host || '');
+      const hostname = host.split(':')[0];
+      const allowedHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+      if (!allowedHosts.has(hostname)) {
+        return res.status(400).json({ error: 'Bad Host header' });
+      }
+      const origin = req.headers.origin;
+      if (origin) {
+        try {
+          const u = new URL(origin);
+          const okOrigin =
+            u.hostname === '127.0.0.1' ||
+            u.hostname === 'localhost' ||
+            u.hostname === '::1';
+          if (!okOrigin) {
+            return res.status(403).json({ error: 'Origin not allowed' });
+          }
+        } catch {
+          return res.status(400).json({ error: 'Bad Origin' });
+        }
+      }
+      res.setHeader('Vary', 'Origin');
+      next();
+    });
     this.app.use(express.json({ limit: '10mb' }));
+    this.app.use((req, res, next) => this._apiAuthMiddleware(req, res, next));
     this.app.use(express.static(path.join(__dirname, 'src/public')));
 
-    // Routes
     this._setupRoutes();
-    this._setupDeveloperRoutes(); // Add developer-friendly routes
+    this._setupDeveloperRoutes();
   }
 
   /**
@@ -171,6 +239,7 @@ class YTChatGuard extends EventEmitter {
         },
         monitoring: {
           isRunning: this.isMonitoring,
+          videoId: this.smartMonitor?.currentVideoId || null,
           stats: this.smartMonitor ? this.smartMonitor.getSmartStats() : {}
         }
       });
@@ -178,16 +247,17 @@ class YTChatGuard extends EventEmitter {
 
     // Raw message data with pagination
     this.app.get('/api/dev/messages/raw', (req, res) => {
-      const { page = 1, limit = 50 } = req.query;
+      const page = parseApiInt(req.query.page, 1, 1, 1_000_000);
+      const limit = parseApiInt(req.query.limit, 50, 1, 200);
       const offset = (page - 1) * limit;
-      
+
       if (!this.smartMonitor?.messageDatabase) {
         return res.json({ messages: [], total: 0, page: 1, pages: 0 });
       }
 
       const total = this.smartMonitor.messageDatabase.length;
       const messages = this.smartMonitor.messageDatabase
-        .slice(offset, offset + parseInt(limit))
+        .slice(offset, offset + limit)
         .map(msg => ({
           ...msg,
           messagePreview: msg.message.substring(0, 100),
@@ -197,8 +267,8 @@ class YTChatGuard extends EventEmitter {
       res.json({
         messages,
         total,
-        page: parseInt(page),
-        pages: Math.ceil(total / limit),
+        page,
+        pages: Math.ceil(total / limit) || 0,
         showing: messages.length
       });
     });
@@ -260,15 +330,15 @@ class YTChatGuard extends EventEmitter {
         switch (type) {
           case 'messages':
             data = this.smartMonitor?.messageDatabase || [];
-            filename = `ytchatguard-messages-${timestamp}.json`;
+            filename = `safestream-messages-${timestamp}.json`;
             break;
           case 'analysis':
             data = this.smartMonitor?.analysisDatabase || [];
-            filename = `ytchatguard-analysis-${timestamp}.json`;
+            filename = `safestream-analysis-${timestamp}.json`;
             break;
           case 'users':
             data = Array.from(this.smartMonitor?.userProfiles?.values() || []);
-            filename = `ytchatguard-users-${timestamp}.json`;
+            filename = `safestream-users-${timestamp}.json`;
             break;
           default:
             return res.status(400).json({ error: 'Invalid export type' });
@@ -319,15 +389,103 @@ class YTChatGuard extends EventEmitter {
       });
     });
 
-    // Main interface (developer-friendly)
-    this.app.get('/', (req, res) => {
-      res.sendFile(path.join(__dirname, 'src/public/dashboard.html'));
+    // Main interface — inject per-process API token for the dashboard script.
+    this.app.get('/', async (req, res) => {
+      try {
+        const filePath = path.join(__dirname, 'src/public/dashboard.html');
+        let html = await fs.readFile(filePath, 'utf8');
+        const inject = `<script>window.__SAFESTREAM_API_TOKEN__=${JSON.stringify(this._apiToken)};<\/script>`;
+        const marker = '<!-- SAFESTREAM_API_TOKEN_INJECT -->';
+        html = html.includes(marker)
+          ? html.replace(marker, inject)
+          : inject + html;
+        res.type('html').send(html);
+      } catch (e) {
+        res.status(500).type('text').send('Failed to load dashboard');
+      }
     });
 
     // Smart statistics
     this.app.get('/api/smart-stats', (req, res) => {
       const stats = this.smartMonitor ? this.smartMonitor.getSmartStats() : {};
       res.json(stats);
+    });
+
+    // Recent comment buffer (used for SSE replay on (re)connect)
+    this.app.get('/api/comments/recent', (req, res) => {
+      if (!this.smartMonitor?.getRecentComments) return res.json({ comments: [] });
+      const limit = parseApiInt(req.query.limit, 200, 1, 1000);
+      res.json({ comments: this.smartMonitor.getRecentComments(limit) });
+    });
+
+    // Live event stream — pushes every comment, verdict, violation, and stats
+    // change to the dashboard over SSE. Auth via `?_ss_token=` query param
+    // because EventSource() can't set custom headers.
+    this.app.get('/api/events', (req, res) => {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+      let seq = 0;
+      const send = (event, data) => {
+        try {
+          res.write(`id: ${++seq}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        } catch (_) { /* client gone */ }
+      };
+      send('hello', { ok: true, ts: Date.now() });
+
+      const monitor = this.smartMonitor;
+      const onComment = (m) => send('comment', m);
+      const onVerdict = (v) => send('verdict', v);
+      const onViolation = (v) => send('violation', {
+        messageId: v?.message?.id,
+        author: v?.message?.author,
+        message: v?.message?.message,
+        analysis: v?.analysis
+      });
+      const onStats = (s) => send('stats', s);
+      const onStarted = (s) => send('started', s);
+      const onStopped = () => send('stopped', { ok: true });
+      const onError = (e) => send('error-evt', { message: String(e?.message || e) });
+
+      if (monitor) {
+        if (typeof monitor.getRecentComments === 'function') {
+          for (const c of monitor.getRecentComments(50)) send('comment', c);
+        }
+        if (typeof monitor.getSmartStats === 'function') {
+          send('stats', monitor.getSmartStats());
+        }
+        monitor.on('comment', onComment);
+        monitor.on('verdict', onVerdict);
+        monitor.on('violation', onViolation);
+        monitor.on('stats', onStats);
+        monitor.on('started', onStarted);
+        monitor.on('stopped', onStopped);
+        monitor.on('error', onError);
+      }
+
+      const heartbeat = setInterval(() => {
+        try { res.write(`:keep-alive ${Date.now()}\n\n`); } catch (_) { /* noop */ }
+      }, 15000);
+
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        if (monitor) {
+          monitor.off('comment', onComment);
+          monitor.off('verdict', onVerdict);
+          monitor.off('violation', onViolation);
+          monitor.off('stats', onStats);
+          monitor.off('started', onStarted);
+          monitor.off('stopped', onStopped);
+          monitor.off('error', onError);
+        }
+      };
+      req.on('close', cleanup);
+      req.on('aborted', cleanup);
     });
 
     // Moderation action history (warnings / timeout-tier / ban-tier chat messages)
@@ -389,13 +547,13 @@ class YTChatGuard extends EventEmitter {
       try {
         const { code, state, error: oauthError } = req.query;
         if (oauthError) {
-          console.error('❌ Google OAuth error:', oauthError);
+          console.error('Google OAuth error:', oauthError);
           return res.redirect(`/?auth=error&reason=${encodeURIComponent(oauthError)}`);
         }
         await this.youtubeService.handleCallback(code, state);
         res.redirect('/?auth=success');
       } catch (error) {
-        console.error('❌ Auth callback error:', error);
+        console.error('Auth callback error:', error);
         res.redirect('/?auth=error');
       }
     });
@@ -424,6 +582,94 @@ class YTChatGuard extends EventEmitter {
         res.json(this.config.getAISettingsSnapshot());
       } catch (error) {
         res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Diagnostics — tells the UI whether secrets are stored in the OS keychain
+    // (Keychain / DPAPI / libsecret) or in the plaintext fallback file. Never
+    // returns the secret values themselves.
+    this.app.get('/api/system/secrets', (req, res) => {
+      try {
+        res.json(this.config.describeSecrets());
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // List models loaded in the user's LM Studio local server.
+    // Optional ?url=http://host:port overrides the saved url for a "test before save".
+    this.app.get('/api/ai/lmstudio/models', async (req, res) => {
+      const raw = String(req.query.url || this.config.get('ai.lmstudio.url') || '').trim();
+      const baseUrl = raw.replace(/\/+$/, '');
+      if (!baseUrl) {
+        return res.status(400).json({ ok: false, error: 'Missing LM Studio URL' });
+      }
+      let safe;
+      try {
+        safe = assertSafeLocalUrl(baseUrl);
+      } catch (e) {
+        return res.status(400).json({ ok: false, error: e.message });
+      }
+      const modelsPath = `${safe.origin}${safe.pathname.replace(/\/+$/, '')}/v1/models`;
+      try {
+        const r = await axios.get(modelsPath, { timeout: 4000, maxRedirects: 0 });
+        const models = Array.isArray(r.data?.data) ? r.data.data : [];
+        res.json({
+          ok: true,
+          url: baseUrl,
+          models: models.map((m) => ({ id: m.id, name: m.id }))
+        });
+      } catch (error) {
+        const code = error.code || (error.response && error.response.status) || 'ERR';
+        res.status(200).json({
+          ok: false,
+          url: baseUrl,
+          error: `Could not reach LM Studio at ${baseUrl} (${code}). Start LM Studio, load a model, then enable "Local Server".`
+        });
+      }
+    });
+
+    // List Gemini models for the saved (or supplied) API key.
+    // Returns a small curated list as a safe fallback if no key is available yet.
+    this.app.get('/api/ai/gemini/models', async (req, res) => {
+      const fallback = [
+        { id: 'gemini-2.0-flash', name: 'gemini-2.0-flash (fast, recommended)' },
+        { id: 'gemini-1.5-flash', name: 'gemini-1.5-flash' },
+        { id: 'gemini-1.5-flash-8b', name: 'gemini-1.5-flash-8b' },
+        { id: 'gemini-1.5-pro', name: 'gemini-1.5-pro' }
+      ];
+      const key = String(req.query.apiKey || this.config.get('ai.gemini.apiKey') || '').trim();
+      if (!key) {
+        return res.json({ ok: true, source: 'curated', models: fallback });
+      }
+      try {
+        const r = await axios.get(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
+          { timeout: 5000 }
+        );
+        const list = Array.isArray(r.data?.models) ? r.data.models : [];
+        const models = list
+          .filter((m) =>
+            Array.isArray(m.supportedGenerationMethods) &&
+            m.supportedGenerationMethods.includes('generateContent') &&
+            String(m.name || '').includes('/gemini-')
+          )
+          .map((m) => {
+            const id = String(m.name).replace(/^models\//, '');
+            return { id, name: m.displayName ? `${id} — ${m.displayName}` : id };
+          });
+        res.json({
+          ok: true,
+          source: models.length ? 'api' : 'curated',
+          models: models.length ? models : fallback
+        });
+      } catch (error) {
+        res.json({
+          ok: false,
+          source: 'curated',
+          models: fallback,
+          error: `Could not list Gemini models (${error.response?.status || error.code || 'ERR'}). Showing common defaults.`
+        });
       }
     });
 
@@ -456,7 +702,13 @@ class YTChatGuard extends EventEmitter {
         }
 
         if (b.lmstudioUrl != null) {
-          this.config.set('ai.lmstudio.url', String(b.lmstudioUrl).trim());
+          const candidate = String(b.lmstudioUrl).trim();
+          try {
+            assertSafeLocalUrl(candidate);
+          } catch (e) {
+            return res.status(400).json({ error: `LM Studio URL: ${e.message}` });
+          }
+          this.config.set('ai.lmstudio.url', candidate);
         }
         if (b.lmstudioModel != null) {
           this.config.set('ai.lmstudio.model', String(b.lmstudioModel).trim());
@@ -468,9 +720,6 @@ class YTChatGuard extends EventEmitter {
         if (b.lmstudioMaxTokens != null && b.lmstudioMaxTokens !== '') {
           const m = parseInt(String(b.lmstudioMaxTokens), 10);
           if (!Number.isNaN(m) && m > 0) this.config.set('ai.lmstudio.maxTokens', m);
-        }
-        if (typeof b.lmstudioUseLangGraph === 'boolean') {
-          this.config.set('ai.lmstudio.useLangGraph', b.lmstudioUseLangGraph);
         }
 
         if (b.geminiModel != null) {
@@ -579,15 +828,46 @@ class YTChatGuard extends EventEmitter {
         ) {
           return res.status(400).json({ error: 'clientSecret is required' });
         }
-        this.config.set('youtube.clientId', String(clientId).trim());
-        this.config.set('youtube.clientSecret', String(clientSecret).trim());
+        const newId = String(clientId).trim();
+        const newSecret = String(clientSecret).trim();
+        const prevId = String(this.config.get('youtube.clientId') || '');
+        const prevSecret = String(this.config.get('youtube.clientSecret') || '');
+        const oauthChanged = newId !== prevId || newSecret !== prevSecret;
+
+        this.config.set('youtube.clientId', newId);
+        this.config.set('youtube.clientSecret', newSecret);
         await this.config.save();
+
+        // Tokens that were minted for the previous OAuth client are unusable
+        // with the new one. Clear them so the dashboard immediately shows
+        // "Sign in with Google" instead of a confusing refresh failure.
+        if (oauthChanged && this.youtubeService) {
+          try { await this.youtubeService.signOut(); } catch (e) {
+            console.warn('Token clear after OAuth change failed:', e.message);
+          }
+        }
         this.recreateYoutubeService();
+
         res.json({
           success: true,
-          message: 'Credentials saved. You can sign in with Google.',
+          message: oauthChanged
+            ? 'Credentials saved. Previous Google sign-in cleared — sign in again.'
+            : 'Credentials saved.',
           snapshot: this.config.getOAuthPublicSnapshot(this.getListenPort())
         });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Explicit sign-out (clears stored tokens; OAuth client config stays).
+    this.app.post('/api/auth/signout', async (req, res) => {
+      try {
+        if (!this.youtubeService) {
+          return res.json({ success: true, message: 'Already signed out.' });
+        }
+        await this.youtubeService.signOut();
+        res.json({ success: true, message: 'Signed out of Google.' });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
@@ -637,7 +917,8 @@ class YTChatGuard extends EventEmitter {
           return res.json({ messages: [], total: 0 });
         }
         
-        const { limit = 100, offset = 0 } = req.query;
+        const limit = parseApiInt(req.query.limit, 100, 1, MAX_API_LIMIT);
+        const offset = parseApiInt(req.query.offset, 0, 0, MAX_API_OFFSET);
         const messages = this.smartMonitor.messageDatabase
           .slice(offset, offset + limit)
           .map(msg => ({
@@ -665,7 +946,8 @@ class YTChatGuard extends EventEmitter {
           return res.json({ analyses: [], total: 0 });
         }
         
-        const { limit = 100, offset = 0 } = req.query;
+        const limit = parseApiInt(req.query.limit, 100, 1, MAX_API_LIMIT);
+        const offset = parseApiInt(req.query.offset, 0, 0, MAX_API_OFFSET);
         const analyses = this.smartMonitor.analysisDatabase.slice(offset, offset + limit);
         
         res.json({ 
@@ -696,7 +978,17 @@ class YTChatGuard extends EventEmitter {
   async _initializeServices() {
     // YouTube service
     this.youtubeService = new YouTubeService(this.config);
-    
+
+    // Eagerly migrate any legacy `tokens.json` into the SecretStore so the
+    // file disappears even if the user hasn't kicked off OAuth yet on this run.
+    try {
+      if (this.youtubeService.tokenManager) {
+        await this.youtubeService.tokenManager.loadStoredTokens();
+      }
+    } catch {
+      // best-effort; lazy migration still covers later boots
+    }
+
     // AI service
     this.aiService = new AIService(this.config);
     
@@ -710,7 +1002,7 @@ class YTChatGuard extends EventEmitter {
     // Setup event listeners
     this._setupEventListeners();
     
-    console.log('✅ Smart services initialized');
+    console.log('Smart services initialized');
   }
 
   /**
@@ -729,7 +1021,7 @@ class YTChatGuard extends EventEmitter {
       });
 
       this.smartMonitor.on('error', (error) => {
-        console.error('❌ Smart monitor error:', error);
+        console.error('Smart monitor error:', error);
       });
 
       this.smartMonitor.on('started', (data) => {
@@ -746,7 +1038,7 @@ class YTChatGuard extends EventEmitter {
    * Graceful shutdown
    */
   async shutdown() {
-    console.log('🛑 Shutting down YTChatGuard Smart...');
+    console.log('Shutting down SafeStream…');
     
     if (this.isMonitoring) {
       await this.smartMonitor.stop();
@@ -760,18 +1052,18 @@ class YTChatGuard extends EventEmitter {
       this._listenPort = null;
     }
 
-    console.log('✅ YTChatGuard Smart shutdown complete');
+    console.log('SafeStream shutdown complete');
   }
 }
 
 // Export and start if running directly
-module.exports = YTChatGuard;
+module.exports = SafeStream;
 
 if (require.main === module) {
-  const app = new YTChatGuard();
+  const app = new SafeStream();
   
   app.initialize().catch(error => {
-    console.error('❌ Failed to start YTChatGuard:', error);
+    console.error('Failed to start SafeStream:', error);
     process.exit(1);
   });
 
