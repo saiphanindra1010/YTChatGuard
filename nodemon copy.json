@@ -1,5 +1,0 @@
-{
-  "watch": ["index.js", "src", "electron-main.js", "electron-preload.js"],
-  "ext": "js,cjs,mjs",
-  "ignore": ["**/node_modules/**", "release/**", "src/public/css/tailwind.css"]
-}

@@ -1,0 +1,83 @@
+{
+  "ai": {
+    "provider": "lmstudio",
+    "fallbackProviders": [
+      "lmstudio"
+    ],
+    "streaming": true,
+    "concurrency": 4,
+    "queueMaxDepth": 200,
+    "gemini": {
+      "apiKey": "",
+      "model": "gemini-1.5-flash"
+    },
+    "lmstudio": {
+      "url": "http://localhost:1234",
+      "model": "local-model",
+      "timeout": 8000,
+      "maxTokens": 60
+    },
+    "openai": {
+      "apiKey": "",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-3.5-turbo"
+    }
+  },
+  "youtube": {
+    "clientId": "",
+    "clientSecret": "",
+    "redirectUri": "http://localhost:3997/auth/callback",
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.readonly",
+      "https://www.googleapis.com/auth/youtube",
+      "https://www.googleapis.com/auth/youtube.force-ssl"
+    ],
+    "pollInterval": 1500
+  },
+  "moderation": {
+    "enabled": true,
+    "strictness": "medium",
+    "autoRespond": true,
+    "autoTimeout": true,
+    "autoBan": true,
+    "timeoutSeconds": 3009,
+    "maxWarnings": 3,
+    "categories": {
+      "toxicity": true,
+      "harassment": true,
+      "hateSpeech": true,
+      "spam": true,
+      "nsfw": true,
+      "violence": true
+    },
+    "responses": {
+      "warning": "{author} ⚠️ Please keep the chat respectful. This is your warning.",
+      "timeout": "{author} 🚫 Your message violated community guidelines.",
+      "ban": "{author} ❌ You have been banned for repeated violations.",
+      "custom": []
+    },
+    "whitelist": {
+      "users": [],
+      "keywords": []
+    },
+    "blacklist": {
+      "keywords": [],
+      "patterns": []
+    }
+  },
+  "app": {
+    "port": 3997,
+    "logLevel": "info"
+  },
+  "server": {
+    "port": 3997
+  },
+  "smart": {
+    "pollInterval": 1500,
+    "pollIntervalMin": 500,
+    "pollIntervalMax": 3000,
+    "processorIdleDelayMs": 50,
+    "processorBusyDelayMs": 0,
+    "maxFastBatchPerTick": 200
+  }
+}
