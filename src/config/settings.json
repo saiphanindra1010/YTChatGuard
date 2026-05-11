@@ -67,7 +67,9 @@
   },
   "app": {
     "port": 3997,
-    "logLevel": "info"
+    "logLevel": "info",
+    "enableDeveloperRoutes": false,
+    "lmStudioUrlsLocalhostOnly": false
   },
   "server": {
     "port": 3997

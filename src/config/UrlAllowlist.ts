@@ -31,7 +31,30 @@ export function isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-export function assertSafeLocalUrl(raw: string): URL {
+export type SafeLocalUrlOptions = {
+  /** When true, only localhost / 127.* / ::1 — not LAN (192.168.x, etc.). */
+  localhostOnly?: boolean;
+};
+
+/** True loopback hostnames only (used when `localhostOnly` is set on URL checks). */
+export function isLoopbackHost(hostname: string): boolean {
+  if (!hostname) return false;
+  if (hostname.toLowerCase() === 'localhost') return true;
+  const family = net.isIP(hostname);
+  if (family === 4) {
+    return /^127\./.test(hostname);
+  }
+  if (family === 6) {
+    const h = hostname.toLowerCase();
+    return h === '::1';
+  }
+  return false;
+}
+
+export function assertSafeLocalUrl(
+  raw: string,
+  opts: SafeLocalUrlOptions = {}
+): URL {
   let u: URL;
   try {
     u = new URL(raw);
@@ -44,7 +67,13 @@ export function assertSafeLocalUrl(raw: string): URL {
   if (u.username || u.password) {
     throw new Error('Credentials in URL are not allowed');
   }
-  if (!isPrivateHost(u.hostname)) {
+  if (opts.localhostOnly) {
+    if (!isLoopbackHost(u.hostname)) {
+      throw new Error(
+        'LM Studio URL must use localhost or 127.* (or ::1): enable private LAN URLs by turning off app.lmStudioUrlsLocalhostOnly in settings.'
+      );
+    }
+  } else if (!isPrivateHost(u.hostname)) {
     throw new Error('URL must point to localhost or a private network address');
   }
   return u;

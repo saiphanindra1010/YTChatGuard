@@ -158,6 +158,13 @@ export default class SecretStore {
     if (this._mode === MODE_SAFE && this._safeStorage) {
       const buf = this._safeStorage.encryptString(json);
       await fs.writeFile(this.filePath, buf);
+      if (process.platform !== 'win32') {
+        try {
+          await fs.chmod(this.filePath, 0o600);
+        } catch {
+          /* best-effort */
+        }
+      }
     } else {
       await fs.writeFile(this.filePath, json, { mode: 0o600 });
       try {

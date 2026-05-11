@@ -7,6 +7,9 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
+# macOS
+.DS_Store
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -75,6 +78,9 @@ web_modules/
 # OAuth tokens (created automatically after sign-in)
 src/tokens.json
 
+# SecretStore plaintext fallback (prefer OS keychain in Electron / supported desktop)
+src/config/secrets.enc
+
 # dotenv environment variable files
 .env
 .env.development.local
@@ -131,3 +137,6 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# electron-builder packaged apps
+release/

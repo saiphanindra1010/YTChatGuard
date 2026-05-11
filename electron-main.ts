@@ -50,7 +50,9 @@ function isSafeNavigationUrl(url: string): boolean {
     const u = new URL(url);
     const isLocal =
       u.protocol === 'http:' &&
-      (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+      (u.hostname === '127.0.0.1' ||
+        u.hostname === 'localhost' ||
+        u.hostname === '::1');
     const isGoogle =
       u.protocol === 'https:' &&
       (u.hostname === 'accounts.google.com' ||
@@ -69,7 +71,8 @@ function registerLocalServerCspHook(): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const fromApp =
       details.url.startsWith('http://127.0.0.1') ||
-      details.url.startsWith('http://localhost');
+      details.url.startsWith('http://localhost') ||
+      details.url.startsWith('http://[::1]');
     if (!fromApp) {
       callback({ responseHeaders: details.responseHeaders });
       return;
@@ -78,12 +81,13 @@ function registerLocalServerCspHook(): void {
       "default-src 'self'",
       "base-uri 'self'",
       "frame-ancestors 'none'",
+      "object-src 'none'",
       "form-action 'self' https://accounts.google.com https://*.google.com",
-      "script-src 'self' 'unsafe-inline'",
+      "script-src 'self'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob:",
-      "connect-src 'self' http://127.0.0.1:* http://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com"
+      "connect-src 'self' http://127.0.0.1:* http://localhost:* http://[::1]:* https://fonts.googleapis.com https://fonts.gstatic.com"
     ].join('; ');
     callback({
       responseHeaders: {
@@ -94,8 +98,7 @@ function registerLocalServerCspHook(): void {
   });
 }
 
-function applyElectronEnv(): void {
-  const userData = app.getPath('userData');
+function applyElectronEnv(userData: string): void {
   process.env.SAFESTREAM_ELECTRON = '1';
   process.env.SAFESTREAM_USER_DATA = userData;
   process.env.SAFESTREAM_TOKEN_PATH = path.join(userData, 'tokens.json');
@@ -110,10 +113,12 @@ function applyElectronEnv(): void {
 }
 
 async function startBackend(): Promise<void> {
-  applyElectronEnv();
-  safeStreamInstance = new SafeStream();
+  const userData = app.getPath('userData');
+  applyElectronEnv(userData);
+  safeStreamInstance = new SafeStream({ storageDirectory: userData });
   await safeStreamInstance.initialize({
     electron: true,
+    packaged: app.isPackaged,
     port: parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10),
     oauthHost: '127.0.0.1'
   });
@@ -156,7 +161,9 @@ async function createWindow(): Promise<void> {
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   });
 

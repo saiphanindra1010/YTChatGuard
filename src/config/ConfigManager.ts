@@ -35,6 +35,17 @@ const SECRET_PATHS = [
   'ai.openai.apiKey'
 ];
 
+/** JSON / form-friendly booleans: `true`, `"1"`, `"yes"`, etc. */
+function configFlag(v: unknown): boolean {
+  if (v === true) return true;
+  if (v === false || v == null) return false;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+  }
+  return false;
+}
+
 /**
  * Configuration Manager — loads `settings.json`, merges defaults, optional env overrides.
  */
@@ -46,9 +57,12 @@ class ConfigManager {
   config: Record<string, unknown>;
   readonly secrets: SecretStore;
   watchers: Set<(snapshot: Record<string, unknown>) => void>;
+  /** DMG/AppImage: SSRF tightening — LM Studio URL must stay on loopback. */
+  private _packagedElectronLmLocalhostOnly = false;
 
-  constructor() {
-    const userDataDir = appEnv('USER_DATA');
+  constructor(options?: { storageDirectory?: string }) {
+    const fromCaller = options?.storageDirectory?.trim();
+    const userDataDir = fromCaller || appEnv('USER_DATA');
     this.configPath = userDataDir
       ? path.join(userDataDir, 'settings.json')
       : path.join(process.cwd(), 'src', 'config', 'settings.json');
@@ -117,7 +131,9 @@ class ConfigManager {
       },
       app: {
         port: 3000,
-        logLevel: 'info'
+        logLevel: 'info',
+        enableDeveloperRoutes: false,
+        lmStudioUrlsLocalhostOnly: false
       },
       server: {
         port: 3000
@@ -235,7 +251,18 @@ class ConfigManager {
     try {
       await fs.mkdir(path.dirname(this.configPath), { recursive: true });
       const onDisk = this._configForDisk();
-      await fs.writeFile(this.configPath, JSON.stringify(onDisk, null, 2));
+      await fs.writeFile(
+        this.configPath,
+        JSON.stringify(onDisk, null, 2),
+        process.platform === 'win32' ? {} : { mode: 0o600 }
+      );
+      if (process.platform !== 'win32') {
+        try {
+          await fs.chmod(this.configPath, 0o600);
+        } catch {
+          /* best-effort */
+        }
+      }
       console.log('Configuration saved');
 
       this.watchers.forEach((callback) => callback(this.config));
@@ -270,11 +297,37 @@ class ConfigManager {
     return this.secrets.describe();
   }
 
+  /** Packaged Electron: ignore disk for certain security defaults (tamper-resistant). */
+  setPackagedElectronPolicy(opts: { forceLmStudioUrlsLocalhostOnly: boolean }) {
+    this._packagedElectronLmLocalhostOnly = !!opts.forceLmStudioUrlsLocalhostOnly;
+  }
+
   /**
    * Get configuration value by path
    */
   get(pathKey: string): unknown {
     return this._getNestedValue(this.config, pathKey);
+  }
+
+  /** Normalize settings values as booleans (`true`, `"1"`, `"yes"`, …). */
+  booleanFlag(pathKey: string): boolean {
+    return configFlag(this.get(pathKey));
+  }
+
+  /** When true, LM Studio base URLs must be loopback-only (`app.lmStudioUrlsLocalhostOnly` or packaged Electron). */
+  isLmStudioUrlLocalhostOnly(): boolean {
+    return (
+      this._packagedElectronLmLocalhostOnly ||
+      this.booleanFlag('app.lmStudioUrlsLocalhostOnly')
+    );
+  }
+
+  /** SSRF-checked URL using current LM Studio localhost-only policy. */
+  assertSafeLmStudioUrl(raw: string): URL {
+    return assertSafeLocalUrl(
+      typeof raw === 'string' ? raw : String(raw ?? ''),
+      { localhostOnly: this.isLmStudioUrlLocalhostOnly() }
+    );
   }
 
   /**
@@ -474,7 +527,9 @@ class ConfigManager {
     if (aiProvider === 'lmstudio') {
       const url = this.get('ai.lmstudio.url');
       try {
-        assertSafeLocalUrl(typeof url === 'string' ? url : String(url ?? ''));
+        this.assertSafeLmStudioUrl(
+          typeof url === 'string' ? url : String(url ?? '')
+        );
       } catch (e: unknown) {
         errors.push(
           `Invalid LM Studio URL: ${e instanceof Error ? e.message : String(e)}`

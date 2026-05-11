@@ -115,6 +115,26 @@ export default class YouTubeService {
     console.log('YouTube Service initialized');
   }
 
+  /**
+   * Recreate the OAuth2 client from current config (needed after HTTP port fallback updates `youtube.redirectUri`).
+   */
+  async rebindOAuthClientFromConfig(): Promise<void> {
+    const stored = await this.tokenManager.loadStoredTokens().catch(() => null);
+    this.auth = new google.auth.OAuth2(
+      String(this.config.get('youtube.clientId') ?? ''),
+      String(this.config.get('youtube.clientSecret') ?? ''),
+      String(this.config.get('youtube.redirectUri') ?? '')
+    );
+    this.tokenManager = new TokenManager(
+      this.auth,
+      this.tokenPath,
+      this.config.secrets
+    );
+    if (stored && Object.keys(stored).length > 0) {
+      this.auth.setCredentials(stored);
+    }
+  }
+
   private _prunePkceStore(): void {
     const ttl = 15 * 60 * 1000;
     const now = Date.now();

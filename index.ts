@@ -1,4 +1,6 @@
 // @ts-nocheck — Express query (`ParsedQs`) vs app params; SSE handler return types until routes are tightened.
+import 'dotenv/config';
+
 /**
  * SafeStream — AI-assisted YouTube live chat moderation
  * Intelligent AI-powered content analysis for YouTube live chat
@@ -14,9 +16,8 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { EventEmitter } from 'events';
 import axios from 'axios';
-import type { Server } from 'http';
+import http, { type Server } from 'http';
 
-import { assertSafeLocalUrl } from './src/config/UrlAllowlist';
 import { publicDir } from './src/lib/projectRoot';
 
 import ConfigManager from './src/config/ConfigManager';
@@ -26,6 +27,10 @@ import AIService from './src/services/AIService';
 
 const MAX_API_LIMIT = 500;
 const MAX_API_OFFSET = 5_000_000;
+const DISALLOWED_HTTP_METHODS = new Set(['TRACE', 'TRACK', 'CONNECT']);
+
+/** Ports to try after `preferred` when bind returns EADDRINUSE (exclusive of the first try). */
+const PORT_BIND_FALLBACK_ATTEMPTS = 40;
 
 function parseApiInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = parseInt(String(value), 10);
@@ -49,14 +54,96 @@ class SafeStream extends EventEmitter {
   isMonitoring = false;
   private _listenPort: number | null = null;
   private _apiToken: string | null = null;
+  private _developerRoutesEnabled = false;
 
-  constructor() {
+  constructor(opts?: { storageDirectory?: string }) {
     super();
 
-    this.config = new ConfigManager();
+    this.config = new ConfigManager(
+      opts?.storageDirectory?.trim()
+        ? { storageDirectory: opts.storageDirectory.trim() }
+        : undefined
+    );
 
     console.log('SafeStream initialized — AI moderation');
     console.log('Records every message | Uses AI intelligently');
+  }
+
+  /**
+   * Bind HTTP server on 127.0.0.1. On EADDRINUSE, tries the next consecutive ports (or a single OS-assigned port when preferred is 0).
+   */
+  async _bindLocalServer(
+    preferredPort: number,
+    options: { electron?: boolean; oauthHost?: string }
+  ): Promise<void> {
+    const bindHost = '127.0.0.1';
+    const hostForLog =
+      options.oauthHost || (options.electron ? '127.0.0.1' : 'localhost');
+    const useEphemeral = preferredPort === 0;
+    const maxTries = useEphemeral ? 1 : PORT_BIND_FALLBACK_ATTEMPTS;
+
+    for (let i = 0; i < maxTries; i++) {
+      const tryPort = useEphemeral ? 0 : preferredPort + i;
+
+      if (!this.server) {
+        this.server = http.createServer(this.app);
+      }
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const srv = this.server;
+          const onErr = (err) => {
+            srv.off('error', onErr);
+            reject(err);
+          };
+          srv.once('error', onErr);
+          srv.listen(tryPort, bindHost, () => {
+            srv.off('error', onErr);
+            resolve();
+          });
+        });
+
+        const addr = this.server.address();
+        const actual =
+          typeof addr === 'object' && addr ? addr.port : Number(tryPort) || 3000;
+        this._listenPort = actual;
+
+        if (useEphemeral || actual !== preferredPort) {
+          if (!useEphemeral) {
+            console.warn(
+              `Port ${preferredPort} was busy; using ${actual}. For Google OAuth, add redirect: http://${hostForLog}:${actual}/auth/callback`
+            );
+          }
+          this.config.set('server.port', actual);
+          this.config.set('app.port', actual);
+          this.config.set(
+            'youtube.redirectUri',
+            `http://${hostForLog}:${actual}/auth/callback`
+          );
+        }
+
+        console.log(
+          `SafeStream running on http://${hostForLog}:${this._listenPort}`
+        );
+        console.log(
+          `Open http://127.0.0.1:${this._listenPort} for the interface`
+        );
+        return;
+      } catch (err) {
+        const code =
+          err && typeof err === 'object' && 'code' in err
+            ? /** @type {NodeJS.ErrnoException} */ (err).code
+            : undefined;
+        const lastTry = i === maxTries - 1;
+        if (code !== 'EADDRINUSE' || lastTry) {
+          throw err;
+        }
+        await new Promise<void>((resolve) => {
+          this.server.close(() => resolve());
+        });
+        this.server = null;
+      }
+    }
   }
 
   /**
@@ -66,14 +153,23 @@ class SafeStream extends EventEmitter {
     port?: number;
     electron?: boolean;
     oauthHost?: string;
+    /** `true` for signed/packaged app (DMG, etc.) — tighter defaults. */
+    packaged?: boolean;
+    /** When set, overrides `app.enableDeveloperRoutes` in settings.json. */
+    enableDeveloperRoutes?: boolean;
   } = {}) {
     try {
       console.log('Initializing SafeStream…');
       console.log('Features: Complete message recording + intelligent AI usage');
 
+      this.config.setPackagedElectronPolicy({
+        forceLmStudioUrlsLocalhostOnly: !!(options.electron && options.packaged)
+      });
+
       await this.config.load();
 
       this._applyRuntimeOptions(options);
+      this._developerRoutesEnabled = this._resolveDeveloperRoutes(options);
 
       this._setupExpress();
 
@@ -85,22 +181,11 @@ class SafeStream extends EventEmitter {
         3000;
       const port = Number(raw) || 3000;
 
-      await new Promise<void>((resolve, reject) => {
-        this.server = this.app.listen(port, '127.0.0.1', () => {
-          const addr = this.server?.address();
-          this._listenPort =
-            typeof addr === 'object' && addr ? addr.port : Number(port);
-          const host =
-            options.oauthHost ||
-            (options.electron ? '127.0.0.1' : 'localhost');
-          console.log(
-            `SafeStream running on http://${host}:${this._listenPort}`
-          );
-          console.log(`Open http://127.0.0.1:${this._listenPort} for the interface`);
-          resolve();
-        });
-        this.server.once('error', reject);
-      });
+      await this._bindLocalServer(port, options);
+
+      if (this.youtubeService) {
+        await this.youtubeService.rebindOAuthClientFromConfig();
+      }
 
       return true;
     } catch (error) {
@@ -115,6 +200,7 @@ class SafeStream extends EventEmitter {
   _applyRuntimeOptions(options: {
     port?: number;
     electron?: boolean;
+    packaged?: boolean;
     oauthHost?: string;
   }): void {
     if (options.port != null && !Number.isNaN(Number(options.port))) {
@@ -134,6 +220,24 @@ class SafeStream extends EventEmitter {
     if (options.electron) {
       this.config.set('app.electron', true);
     }
+  }
+
+  /**
+   * Developer HTTP routes: off for packaged Electron (DMG) regardless of disk tampering;
+   * otherwise settings `app.enableDeveloperRoutes`, unless `initialize({ enableDeveloperRoutes })` overrides.
+   */
+  _resolveDeveloperRoutes(options: {
+    electron?: boolean;
+    packaged?: boolean;
+    enableDeveloperRoutes?: boolean;
+  }): boolean {
+    if (options.electron && options.packaged) {
+      return false;
+    }
+    if (options.enableDeveloperRoutes === true || options.enableDeveloperRoutes === false) {
+      return options.enableDeveloperRoutes;
+    }
+    return this.config.booleanFlag('app.enableDeveloperRoutes');
   }
 
   /** Port the HTTP server is listening on (after listen). */
@@ -224,7 +328,28 @@ class SafeStream extends EventEmitter {
       res.setHeader('Vary', 'Origin');
       next();
     });
-    this.app.use(express.json({ limit: '10mb' }));
+
+    this.app.use((req, res, next) => {
+      if (DISALLOWED_HTTP_METHODS.has(req.method)) {
+        res.setHeader('Allow', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS');
+        return res.status(405).end();
+      }
+      next();
+    });
+
+    this.app.use((_req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      res.setHeader(
+        'Permissions-Policy',
+        'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()'
+      );
+      res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+      next();
+    });
+
+    this.app.use(express.json({ limit: '512kb' }));
     this.app.use((req, res, next) => this._apiAuthMiddleware(req, res, next));
     this.app.use(express.static(publicDir()));
 
@@ -236,7 +361,12 @@ class SafeStream extends EventEmitter {
    * Setup developer-friendly routes
    */
   _setupDeveloperRoutes() {
-
+    if (!this._developerRoutesEnabled) {
+      console.log(
+        'Developer routes disabled (/api/debug, /api/dev/*). Turn on app.enableDeveloperRoutes in settings.json, or start Node with --developer-routes.'
+      );
+      return;
+    }
 
     // Debug information
     this.app.get('/api/debug', (req, res) => {
@@ -389,7 +519,9 @@ class SafeStream extends EventEmitter {
       }
     });
 
-    console.log('Developer routes enabled: /dev, /api/debug, /api/dev/*');
+    console.log(
+      'Developer routes enabled (app.enableDeveloperRoutes or CLI flag): /api/debug, /api/dev/*'
+    );
   }
 
   /**
@@ -398,20 +530,33 @@ class SafeStream extends EventEmitter {
   _setupRoutes() {
     // Health check
     this.app.get('/health', (req, res) => {
-      res.json({ 
-        status: 'ready', 
+      const body = {
+        status: 'ready',
         mode: 'smart-ai',
-        version: '3.0.0',
-        features: ['records_everything', 'smart_ai_usage', 'intelligent_caching', 'dev_tools']
-      });
+        version: '3.0.0'
+      };
+      if (this._developerRoutesEnabled) {
+        body.features = [
+          'records_everything',
+          'smart_ai_usage',
+          'intelligent_caching',
+          'dev_tools'
+        ];
+      }
+      res.json(body);
     });
 
-    // Main interface — inject per-process API token for the dashboard script.
+    // Main interface — inject API token via <meta> (no inline executable script; CSP script-src 'self').
     this.app.get('/', async (req, res) => {
       try {
         const filePath = path.join(publicDir(), 'dashboard.html');
         let html = await fs.readFile(filePath, 'utf8');
-        const inject = `<script>window.__SAFESTREAM_API_TOKEN__=${JSON.stringify(this._apiToken)};<\/script>`;
+        const b64 = Buffer.from(
+          JSON.stringify({ apiToken: this._apiToken }),
+          'utf8'
+        ).toString('base64');
+        /** Standard base64 is safe inside a double-quoted attribute. */
+        const inject = `<meta name="safestream-bootstrap" content="${b64}">`;
         const marker = '<!-- SAFESTREAM_API_TOKEN_INJECT -->';
         html = html.includes(marker)
           ? html.replace(marker, inject)
@@ -623,7 +768,7 @@ class SafeStream extends EventEmitter {
       }
       let safe;
       try {
-        safe = assertSafeLocalUrl(baseUrl);
+        safe = this.config.assertSafeLmStudioUrl(baseUrl);
       } catch (e) {
         return res.status(400).json({ ok: false, error: e.message });
       }
@@ -721,7 +866,7 @@ class SafeStream extends EventEmitter {
         if (b.lmstudioUrl != null) {
           const candidate = String(b.lmstudioUrl).trim();
           try {
-            assertSafeLocalUrl(candidate);
+            this.config.assertSafeLmStudioUrl(candidate);
           } catch (e) {
             return res.status(400).json({ error: `LM Studio URL: ${e.message}` });
           }
@@ -1078,11 +1223,15 @@ export default SafeStream;
 
 if (require.main === module) {
   const app = new SafeStream();
-  
-  app.initialize().catch(error => {
-    console.error('Failed to start SafeStream:', error);
-    process.exit(1);
-  });
+  const devRoutesFlag =
+    process.argv.includes('--developer-routes') ||
+    process.argv.includes('--dev-tools');
+  app
+    .initialize(devRoutesFlag ? { enableDeveloperRoutes: true } : {})
+    .catch(error => {
+      console.error('Failed to start SafeStream:', error);
+      process.exit(1);
+    });
 
   // Graceful shutdown
   process.on('SIGINT', async () => {
